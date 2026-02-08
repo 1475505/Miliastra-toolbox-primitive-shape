@@ -1,0 +1,11 @@
+# 核心依赖
+opencv-python-headless>=4.5
+numpy>=1.20
+scipy>=1.7
+shapely>=2.0
+
+# Web 服务
+flask>=2.0
+
+# 桌面窗口
+pywebview>=4.0
