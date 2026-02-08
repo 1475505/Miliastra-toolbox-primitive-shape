@@ -1,7 +1,6 @@
 """
-轮廓描边工具 - Shaper V3
-P0: 曲率分段 + 局部最优拟合 (二分查找 + 距离场约束)
-P2: 后处理优化 (间隙检测填充 + 图元迭代扩展)
+轮廓描边工具 - Shaper V6
+曲率分段 + 路径行走 + 距离场约束 + 多策略间隙检测
 """
 
 import cv2
@@ -53,10 +52,93 @@ class FittingConfig:
         self.tight_thresh = 0.06             # ≥ 此值视为急弯
 
         # P2: 后处理
-        self.gap_sample_step = 1.5           # 覆盖检测采样步长 (pt index)
-        self.gap_dilate_px = 2               # 覆盖膨胀像素
-        self.gap_fill_iterations = 3         # 间隙填充最大迭代轮数
-        self.expand_growth_factors = (1.3, 1.2, 1.1)  # 扩展尝试倍率
+        self.gap_sample_step = 1.0           # 覆盖检测采样步长 (更密)
+        self.gap_dilate_px = 1               # 覆盖膨胀像素 (更精确)
+        self.gap_fill_iterations = 5         # 间隙填充最大迭代轮数
+        self.expand_growth_factors = (1.15, 1.1, 1.05)  # 扩展尝试倍率 (收紧)
+
+        # V5: 路径行走优化
+        self.step_tight_factor = 0.55        # 急弯步长缩放
+        self.step_straight_factor = 1.15     # 直线步长缩放
+
+
+# ═══════════════════════════════════════════════════════
+#  P3: 智能前景提取
+# ═══════════════════════════════════════════════════════
+
+def extract_mask(img):
+    """
+    智能提取前景 mask (白色=前景, 黑色=背景)。
+
+    策略优先级:
+    1. RGBA 图片 → 用 alpha 通道 (阈值 127)
+    2. 无 alpha → 边框采样推断背景色 → 计算每像素到背景色的颜色距离
+       → Otsu 自适应分割
+    3. Fallback: 灰度 Otsu 反转
+
+    返回: 二值 mask (uint8, 0/255)
+    """
+    h, w = img.shape[:2]
+
+    # ── 策略 1: Alpha 通道 ──
+    if len(img.shape) == 3 and img.shape[2] == 4:
+        alpha = img[:, :, 3]
+        _, mask = cv2.threshold(alpha, 127, 255, cv2.THRESH_BINARY)
+        print(f'  [mask] alpha 通道, 前景={np.sum(mask>0)/(h*w)*100:.1f}%')
+        return mask
+
+    # ── 准备灰度和 BGR ──
+    if len(img.shape) == 2:
+        gray = img
+        bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    else:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        bgr = img[:, :, :3] if img.shape[2] >= 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+    # ── 策略 2: 边框采样 + 颜色距离 + Otsu ──
+    # 采样图像四周边缘像素作为背景样本
+    margin = max(2, min(h, w) // 50)  # 自适应采样宽度
+    border_pixels = np.concatenate([
+        bgr[:margin, :].reshape(-1, 3),        # 顶部
+        bgr[-margin:, :].reshape(-1, 3),       # 底部
+        bgr[margin:-margin, :margin].reshape(-1, 3),   # 左侧
+        bgr[margin:-margin, -margin:].reshape(-1, 3),  # 右侧
+    ])
+
+    # 背景色 = 边框像素的中值 (比均值更鲁棒)
+    bg_color = np.median(border_pixels, axis=0).astype(np.float64)
+    print(f'  [mask] 边框采样背景色 BGR=({bg_color[0]:.0f},{bg_color[1]:.0f},{bg_color[2]:.0f})')
+
+    # 每像素到背景色的欧氏距离
+    diff = bgr.astype(np.float64) - bg_color
+    color_dist = np.sqrt(np.sum(diff ** 2, axis=2))
+
+    # 归一化到 0-255 范围
+    max_dist = max(color_dist.max(), 1.0)
+    dist_u8 = np.clip(color_dist / max_dist * 255, 0, 255).astype(np.uint8)
+
+    # Otsu 自动阈值 (在颜色距离图上)
+    otsu_t, mask = cv2.threshold(dist_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    fg_ratio = np.sum(mask > 0) / (h * w)
+    print(f'  [mask] 颜色距离 Otsu 阈值={otsu_t:.0f}, 前景={fg_ratio*100:.1f}%')
+
+    # 如果 Otsu 得到的前景比例合理 (1%~95%), 使用该结果
+    if 0.01 < fg_ratio < 0.95:
+        return mask
+
+    # ── 策略 3: 灰度 Otsu (fallback) ──
+    otsu_t2, mask2 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    fg_ratio2 = np.sum(mask2 > 0) / (h * w)
+    print(f'  [mask] 灰度 Otsu fallback 阈值={otsu_t2:.0f}, 前景={fg_ratio2*100:.1f}%')
+
+    if 0.01 < fg_ratio2 < 0.95:
+        return mask2
+
+    # ── 最后手段: 固定阈值 ──
+    _, mask3 = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
+    print(f'  [mask] 固定阈值 fallback')
+    return mask3
 
 
 # ═══════════════════════════════════════════════════════
@@ -150,10 +232,10 @@ def cursor_to_index(cursor, cum_arc, total_arc):
     return min(idx, len(cum_arc) - 2)
 
 
-def tangent_normal_at(pts, idx, poly):
+def tangent_normal_at(pts, idx, dist_map):
     """
-    基于轮廓点数组计算 idx 处的切线和指向内部的法线。
-    直接操作 numpy 数组, 比反复调用 Shapely interpolate 快得多。
+    基于距离场的自适应法线方向检测。
+    用距离场值比较两侧, 选择更深入内部的方向。
     """
     N = len(pts)
     i0 = (idx - 1) % N
@@ -165,10 +247,26 @@ def tangent_normal_at(pts, idx, poly):
     # 法线: 逆时针轮廓中, 左侧 (-ty, tx) 通常指向内部
     normal = np.array([-t[1], t[0]])
 
-    # 验证法线方向 (若不指向内部则翻转)
+    # 验证法线方向 — 基于距离场比较两侧, 选更深入内部的方向
     px, py = pts[idx]
-    test_pt = Point(px + normal[0] * 2, py + normal[1] * 2)
-    if not poly.contains(test_pt):
+    h, w = dist_map.shape
+    # 自适应探测距离: 取当前点距离场值的 40%, 至少 2px
+    ix0, iy0 = int(px), int(py)
+    if 0 <= ix0 < w and 0 <= iy0 < h:
+        probe = max(2.0, float(dist_map[iy0, ix0]) * 0.4)
+    else:
+        probe = 2.0
+    # 比较法线两侧的距离场值, 选值更大(更深入内部)的方向
+    t1x, t1y = px + normal[0] * probe, py + normal[1] * probe
+    t2x, t2y = px - normal[0] * probe, py - normal[1] * probe
+    v1, v2 = 0.0, 0.0
+    ix1, iy1 = int(t1x), int(t1y)
+    ix2, iy2 = int(t2x), int(t2y)
+    if 0 <= ix1 < w and 0 <= iy1 < h:
+        v1 = float(dist_map[iy1, ix1])
+    if 0 <= ix2 < w and 0 <= iy2 < h:
+        v2 = float(dist_map[iy2, ix2])
+    if v2 > v1:
         normal = -normal
 
     return t, normal
@@ -181,9 +279,11 @@ def max_inscribed_radius(px, py, normal, dist_map, rmin, rmax):
     相比线性扫描, 20 次迭代即可达 ~0.3px 精度。
     """
     h, w = dist_map.shape
-    lo, hi = rmin, rmax
-    best_r = rmin
-    best_c = (px + normal[0] * rmin, py + normal[1] * rmin)
+    # V5: 允许搜索到比 rmin 更小的半径, 解决窄轮廓处溢出
+    actual_lo = max(1.5, rmin * 0.3)
+    lo, hi = actual_lo, rmax
+    best_r = actual_lo
+    best_c = (px + normal[0] * actual_lo, py + normal[1] * actual_lo)
 
     for _ in range(20):
         mid = (lo + hi) * 0.5
@@ -198,6 +298,13 @@ def max_inscribed_radius(px, py, normal, dist_map, rmin, rmax):
             hi = mid
         if hi - lo < 0.3:
             break
+
+    # 最终 clamp — 确保半径不超过中心点到前景边界的实际距离
+    if best_c is not None:
+        cix, ciy = int(best_c[0]), int(best_c[1])
+        if 0 <= cix < w and 0 <= ciy < h:
+            best_r = min(best_r, float(dist_map[ciy, cix]))
+    best_r = max(best_r, 1.5)  # 绝对最小半径
 
     return best_r, best_c
 
@@ -217,6 +324,28 @@ def make_rect_poly(cx, cy, w, h, angle_deg):
     return translate(r, cx, cy)
 
 
+def dist_map_containment_check(poly_shape, dist_map, sample_n=32):
+    """
+    V5: 加密边界采样 (32点) + 距离场阈值 (≥0.5px)。
+    在图元边界上均匀采样, 检查每个点是否在前景内部。
+    """
+    h, w = dist_map.shape
+    try:
+        boundary = poly_shape.boundary
+        total_len = boundary.length
+        if total_len < 1:
+            return 1.0
+        inside = 0
+        for i in range(sample_n):
+            pt = boundary.interpolate(i / sample_n * total_len)
+            ix, iy = int(pt.x), int(pt.y)
+            if 0 <= ix < w and 0 <= iy < h and dist_map[iy, ix] >= 0.5:
+                inside += 1
+        return inside / sample_n
+    except Exception:
+        return 0.0
+
+
 # ═══════════════════════════════════════════════════════
 #  P0-C: 单点最优图元选择
 # ═══════════════════════════════════════════════════════
@@ -231,7 +360,7 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
     1. 二分查找最大内切圆半径 (距离场约束)
     2. 基础候选: 该半径的圆
     3. 根据曲率分段类型, 尝试沿切线拉伸为椭圆/矩形
-    4. 用 Shapely 检验包含性 (不超出轮廓)
+    4. 用 Shapely 检验包含性 (不超出轮廓) + 距离场二次验证
     5. 返回得分最高的候选
     """
     rmin = cfg.min_size / 2
@@ -239,13 +368,16 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
     best_r, center = max_inscribed_radius(px, py, normal, dist_map, rmin, rmax)
     ang = math.degrees(math.atan2(tangent[1], tangent[0]))
 
+    # 包含性阈值: 精度越高要求越严格 (0.88 ~ 0.98)
+    contain_t = 0.88 + cfg.precision * 0.10
+
     # ---- 基础候选: 圆 ----
     cpoly = Point(center).buffer(best_r)
     candidates = [{
         'type': ShapeType.ELLIPSE, 'center': center,
         'size': (best_r, best_r), 'rot': ang,
         'score': math.pi * best_r ** 2,
-        'poly': cpoly, 'tr': best_r,
+        'poly': cpoly, 'tr': best_r, 'sr': best_r,
     }]
 
     # ---- 拉伸候选 (椭圆 / 矩形) ----
@@ -266,8 +398,6 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
             max_stretch = min(cfg.effective_aspect_limit, 2.0)
             rect_bonus = 0.0
 
-        contain_t = 0.85 + cfg.precision * 0.15
-
         for asp in (1.3, 1.6, 2.0, 2.5, 3.0, 4.0, 5.0, max_stretch):
             if asp > max_stretch:
                 continue
@@ -279,30 +409,59 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
                 if ep.is_valid:
                     ia = poly.intersection(ep).area
                     ea = ep.area
+                    # Shapely 包含性检查 + 距离场边界验证
                     if ea > 0 and ia >= ea * contain_t:
-                        candidates.append({
-                            'type': ShapeType.ELLIPSE, 'center': center,
-                            'size': (mr, best_r), 'rot': ang,
-                            'score': math.pi * mr * best_r,
-                            'poly': ep, 'tr': mr,
-                        })
+                        dm_ratio = dist_map_containment_check(ep, dist_map)
+                        # 拉伸图元dm_ratio要求适当放宽
+                        dm_thresh = max(0.70, 0.88 - asp * 0.03)
+                        if dm_ratio >= dm_thresh:
+                            # V5: 多维评分 — compactness 惩罚随精度缩放
+                            containment = ia / ea
+                            compactness = best_r / mr
+                            # 低精度→几乎不惩罚拉伸; 高精度→惩罚拉伸
+                            cp_weight = cfg.precision  # 0.0~1.0
+                            cp_factor = 1.0 - cp_weight * (1.0 - compactness) * 0.5
+                            score = (math.pi * mr * best_r
+                                     * containment ** 2
+                                     * cp_factor)
+                            candidates.append({
+                                'type': ShapeType.ELLIPSE, 'center': center,
+                                'size': (mr, best_r), 'rot': ang,
+                                'score': score,
+                                'poly': ep, 'tr': mr, 'sr': best_r,
+                            })
             except Exception:
                 pass
 
             # -- 矩形候选 --
+            # 矩形的角天然伸出弧形轮廓, 用更宽松的独立包含阈值
+            rect_contain_t = max(0.86, contain_t - (1.0 - cfg.precision) * 0.06)
             try:
                 rw, rh = mr * 2, best_r * 2
                 rp = make_rect_poly(center[0], center[1], rw, rh, ang)
                 if rp.is_valid:
                     ia = poly.intersection(rp).area
                     ra = rp.area
-                    if ra > 0 and ia >= ra * contain_t:
-                        candidates.append({
-                            'type': ShapeType.RECTANGLE, 'center': center,
-                            'size': (rw, rh), 'rot': ang,
-                            'score': rw * rh * (1.0 + rect_bonus),
-                            'poly': rp, 'tr': rw / 2,
-                        })
+                    # Shapely 包含性检查 (矩形独立阈值) + 距离场边界验证
+                    if ra > 0 and ia >= ra * rect_contain_t:
+                        dm_ratio = dist_map_containment_check(rp, dist_map)
+                        # 矩形dm_ratio要求比椭圆适度放宽
+                        dm_thresh = max(0.65, 0.85 - asp * 0.04)
+                        if dm_ratio >= dm_thresh:
+                            # V5: 矩形用 containment³ 抑制溢出
+                            containment = ia / ra
+                            compactness = rh / rw
+                            cp_weight = cfg.precision
+                            cp_factor = 1.0 - cp_weight * (1.0 - compactness) * 0.5
+                            score = (rw * rh * (1.0 + rect_bonus)
+                                     * containment ** 3
+                                     * cp_factor)
+                            candidates.append({
+                                'type': ShapeType.RECTANGLE, 'center': center,
+                                'size': (rw, rh), 'rot': ang,
+                                'score': score,
+                                'poly': rp, 'tr': rw / 2, 'sr': rh / 2,
+                            })
             except Exception:
                 pass
 
@@ -342,11 +501,6 @@ def fit_beads(cidx, contour, mask, dist_map, cfg, img_center):
     # ---- 弧长索引 ----
     cum_arc, total_arc = build_arc_length_index(pts)
 
-    # ---- 统计分段比例 (调试用) ----
-    n_straight = np.sum(labels == 0)
-    n_curved = np.sum(labels == 1)
-    n_tight = np.sum(labels == 2)
-
     # ---- 沿轮廓铺设 ----
     elements = []
     cursor = 0.0
@@ -357,7 +511,7 @@ def fit_beads(cidx, contour, mask, dist_map, cfg, img_center):
         it += 1
         idx = cursor_to_index(cursor, cum_arc, total_arc)
         px, py = pts[idx]
-        tangent, normal = tangent_normal_at(pts, idx, poly)
+        tangent, normal = tangent_normal_at(pts, idx, dist_map)
         k = kappa[idx]
         lb = labels[idx]
 
@@ -387,9 +541,23 @@ def fit_beads(cidx, contour, mask, dist_map, cfg, img_center):
 
         elements.append(elem)
 
-        # 步进: 当前图元沿切线方向的跨度
-        step = best['tr'] * 2 * cfg.spacing_ratio
-        cursor += max(step, cfg.min_size * 0.5)
+        # 曲率自适应步长 — 直线段用长轴步进, 弯曲段用短轴限制防跳步
+        sr = best.get('sr', best['tr'])
+        tr = best['tr']
+        lookahead_end = min(idx + 20, N - 1)
+        k_ahead = 0.03  # 默认: curved
+        if lookahead_end > idx + 2:
+            k_ahead = float(np.mean(kappa[idx:lookahead_end]))
+        if k_ahead < cfg.straight_thresh:
+            # 直线段: 长轴已沿切线覆盖前方, 步进可用长轴
+            base_step = tr * 2 * cfg.spacing_ratio * cfg.step_straight_factor
+        elif k_ahead >= cfg.tight_thresh:
+            # 急弯: 保守步进, 基于短轴
+            base_step = min(tr, sr * 2.0) * 2 * cfg.spacing_ratio * cfg.step_tight_factor
+        else:
+            # 弯曲段: 中等限制
+            base_step = min(tr, sr * 2.5) * 2 * cfg.spacing_ratio
+        cursor += max(base_step, cfg.min_size * 0.4)
 
     return elements
 
@@ -422,6 +590,24 @@ def render_coverage_mask(elements, img_shape):
             cv2.drawContours(cov, [bpts], 0, 255, -1)
 
     return cov
+
+
+def render_element_to_mask(elem, img_shape):
+    """将单个图元渲染到二值 mask, 用于快速覆盖检测。"""
+    h, w = img_shape[:2]
+    single = np.zeros((h, w), dtype=np.uint8)
+    cx, cy = int(elem['center']['x']), int(elem['center']['y'])
+    ang = elem['rotation']
+    if elem['type'] == ShapeType.ELLIPSE:
+        s = elem['size']
+        axes = (max(int(s['rx']), 1), max(int(s['ry']), 1))
+        cv2.ellipse(single, (cx, cy), axes, ang, 0, 360, 255, -1)
+    elif elem['type'] == ShapeType.RECTANGLE:
+        rw, rh = elem['size']['width'], elem['size']['height']
+        rect = ((cx, cy), (max(rw, 1), max(rh, 1)), ang)
+        bpts = np.intp(cv2.boxPoints(rect))
+        cv2.drawContours(single, [bpts], 0, 255, -1)
+    return single
 
 
 def detect_gaps(elements, contour_pts, cum_arc, total_arc,
@@ -478,19 +664,54 @@ def detect_gaps(elements, contour_pts, cum_arc, total_arc,
 def fill_gaps(elements, cidx, contour_pts, cum_arc, total_arc,
               poly, dist_map, img_shape, cfg, img_center):
     """
-    多轮迭代: 检测间隙 → 在间隙中均匀补入图元 → 重新检测。
+    V5: 多策略间隙检测 + 曲率引导填充。
+    策略1: 渲染覆盖掩码检测 (像素级)
+    策略2: 图元序列间距检测 (拓扑级, 补充渲染法盲区)
     """
     current = list(elements)
 
+    # V5: 预计算曲率, 用于填充图元的类型选择 (替代固定 kappa=0.03)
+    kappa = compute_curvature(contour_pts, cfg.curvature_sigma)
+    labels = classify_curvature(kappa, cfg)
+    labels = merge_short_runs(labels, min_run=5)
+    N_pts = len(contour_pts)
+
     for iteration in range(cfg.gap_fill_iterations):
+        # 策略1: 渲染覆盖检测
         gaps = detect_gaps(current, contour_pts, cum_arc, total_arc,
                            img_shape, cfg)
+
+        # V5 策略2: 图元序列间距检测
+        if current:
+            sorted_elems = sorted(
+                current, key=lambda e: e.get('_cursor', 0))
+            for i in range(1, len(sorted_elems)):
+                e1, e2 = sorted_elems[i - 1], sorted_elems[i]
+                c1, c2 = e1['center'], e2['center']
+                d = math.sqrt((c1['x'] - c2['x']) ** 2
+                              + (c1['y'] - c2['y']) ** 2)
+                tr1 = e1.get('_tr', cfg.min_size / 2)
+                tr2 = e2.get('_tr', cfg.min_size / 2)
+                expected = min(tr1, tr2) * 2 * cfg.spacing_ratio
+                if d > expected * 1.5:
+                    s_arc = e1.get('_cursor', 0)
+                    e_arc = e2.get('_cursor', 0)
+                    g_len = e_arc - s_arc
+                    if g_len > cfg.min_size * 0.3:
+                        already = any(abs(g[0] - s_arc) < cfg.min_size
+                                      for g in gaps)
+                        if not already:
+                            gaps.append((s_arc, e_arc, g_len))
+
         if not gaps:
             break
 
+        # 渲染已有图元的覆盖掩码, 用于跳过已被充分覆盖的填充位置
+        cov_mask = render_coverage_mask(current, img_shape)
+
         added = 0
         for g_start, g_end, g_len in gaps:
-            if g_len < cfg.min_size * 0.4:
+            if g_len < cfg.min_size * 0.3:
                 continue
             n_fillers = max(1, int(g_len / cfg.min_size))
             for fi in range(n_fillers):
@@ -498,12 +719,17 @@ def fill_gaps(elements, cidx, contour_pts, cum_arc, total_arc,
                 fill_arc = g_start + frac * g_len
                 idx = cursor_to_index(fill_arc, cum_arc, total_arc)
                 px, py = contour_pts[idx]
-                tangent, normal = tangent_normal_at(contour_pts, idx, poly)
+                tangent, normal = tangent_normal_at(
+                    contour_pts, idx, dist_map)
+
+                # V5: 使用真实曲率
+                k_val = float(kappa[idx]) if idx < N_pts else 0.03
+                lb_val = int(labels[idx]) if idx < N_pts else 1
 
                 best = best_primitive_at(
                     px, py, tangent, normal,
                     dist_map, poly, cfg,
-                    kappa=0.03, seg_label=1,
+                    kappa=k_val, seg_label=lb_val,
                 )
                 cx, cy = best['center']
                 elem = {
@@ -526,6 +752,15 @@ def fill_gaps(elements, cidx, contour_pts, cum_arc, total_arc,
                     w, h = best['size']
                     elem['size'] = {'width': round(w, 2), 'height': round(h, 2)}
 
+                # 跳过已被现有图元大面积覆盖的填充图元
+                single = render_element_to_mask(elem, img_shape)
+                elem_px = np.sum(single > 0)
+                if elem_px > 0:
+                    covered_px = np.sum((single > 0) & (cov_mask > 0))
+                    if covered_px / elem_px > 0.7:
+                        continue
+                cov_mask = np.maximum(cov_mask, single)
+
                 current.append(elem)
                 added += 1
 
@@ -539,12 +774,12 @@ def fill_gaps(elements, cidx, contour_pts, cum_arc, total_arc,
 #  P2-C: 图元扩展
 # ═══════════════════════════════════════════════════════
 
-def expand_elements(elements, poly, cfg):
+def expand_elements(elements, poly, cfg, dist_map=None):
     """
-    尝试沿切线方向扩展每个图元的长轴/宽度。
-    仅在扩展后仍被原始轮廓包含时接受, 贪心策略。
+    V5: 双向扩展 (长轴 + 短轴) + 距离场双重验证。
+    在两个轴向上分别尝试扩大, 提高覆盖饱满度。
     """
-    contain_t = 0.85 + cfg.precision * 0.15
+    contain_t = 0.88 + cfg.precision * 0.10
 
     for elem in elements:
         if elem.get('_poly') is None:
@@ -556,6 +791,7 @@ def expand_elements(elements, poly, cfg):
         if elem['type'] == ShapeType.ELLIPSE:
             rx = elem['size']['rx']
             ry = elem['size']['ry']
+            # 长轴扩展
             for g in cfg.expand_growth_factors:
                 new_rx = rx * g
                 ep = make_ellipse_poly(cx, cy, new_rx, ry, ang)
@@ -563,16 +799,36 @@ def expand_elements(elements, poly, cfg):
                     ia = poly.intersection(ep).area
                     ea = ep.area
                     if ea > 0 and ia >= ea * contain_t:
-                        elem['size']['rx'] = round(new_rx, 2)
-                        elem['_poly'] = ep
-                        elem['_tr'] = new_rx
-                        break
+                        if dist_map is None or \
+                                dist_map_containment_check(ep, dist_map) >= 0.92:
+                            elem['size']['rx'] = round(new_rx, 2)
+                            elem['_poly'] = ep
+                            elem['_tr'] = new_rx
+                            rx = new_rx
+                            break
+                except Exception:
+                    pass
+            # 短轴扩展
+            for g in cfg.expand_growth_factors:
+                new_ry = ry * g
+                ep = make_ellipse_poly(cx, cy, rx, new_ry, ang)
+                try:
+                    ia = poly.intersection(ep).area
+                    ea = ep.area
+                    if ea > 0 and ia >= ea * contain_t:
+                        if dist_map is None or \
+                                dist_map_containment_check(ep, dist_map) >= 0.92:
+                            elem['size']['ry'] = round(new_ry, 2)
+                            elem['_poly'] = ep
+                            ry = new_ry
+                            break
                 except Exception:
                     pass
 
         elif elem['type'] == ShapeType.RECTANGLE:
             rw = elem['size']['width']
             rh = elem['size']['height']
+            # 长边扩展
             for g in cfg.expand_growth_factors:
                 new_w = rw * g
                 rp = make_rect_poly(cx, cy, new_w, rh, ang)
@@ -580,18 +836,86 @@ def expand_elements(elements, poly, cfg):
                     ia = poly.intersection(rp).area
                     ra = rp.area
                     if ra > 0 and ia >= ra * contain_t:
-                        elem['size']['width'] = round(new_w, 2)
-                        elem['_poly'] = rp
-                        elem['_tr'] = new_w / 2
-                        break
+                        if dist_map is None or \
+                                dist_map_containment_check(rp, dist_map) >= 0.92:
+                            elem['size']['width'] = round(new_w, 2)
+                            elem['_poly'] = rp
+                            elem['_tr'] = new_w / 2
+                            rw = new_w
+                            break
+                except Exception:
+                    pass
+            # 短边扩展
+            for g in cfg.expand_growth_factors:
+                new_h = rh * g
+                rp = make_rect_poly(cx, cy, rw, new_h, ang)
+                try:
+                    ia = poly.intersection(rp).area
+                    ra = rp.area
+                    if ra > 0 and ia >= ra * contain_t:
+                        if dist_map is None or \
+                                dist_map_containment_check(rp, dist_map) >= 0.92:
+                            elem['size']['height'] = round(new_h, 2)
+                            elem['_poly'] = rp
+                            rh = new_h
+                            break
                 except Exception:
                     pass
 
     return elements
 
 
-# ═══════════════════════════════════════════════════════
-#  渲染输出
+def suppress_overlap(elements, img_shape, coverage_thresh=0.85):
+    """
+    重叠抑制 — 用渲染掩码检测累积覆盖, 移除冗余图元。
+
+    策略: 按面积从大到小排序, 依次渲染到累积掩码。
+    对每个较小图元, 检查其像素是否已被掩码大面积覆盖。
+    相比逐对 Shapely 交集, 自然处理多图元联合覆盖且更快。
+    """
+    if len(elements) <= 1:
+        return elements
+
+    h, w = img_shape[:2]
+
+    def elem_area(e):
+        p = e.get('_poly')
+        if p is not None:
+            try:
+                return p.area
+            except Exception:
+                pass
+        return 0
+
+    # 按面积降序排列
+    indexed = sorted(enumerate(elements), key=lambda x: elem_area(x[1]),
+                     reverse=True)
+
+    accepted_idx = set()
+    cumulative_mask = np.zeros((h, w), dtype=np.uint8)
+    removed = 0
+
+    for orig_idx, elem in indexed:
+        single = render_element_to_mask(elem, img_shape)
+        elem_px = np.sum(single > 0)
+
+        if elem_px < 1:
+            accepted_idx.add(orig_idx)
+            continue
+
+        # 检查该图元是否已被累积掩码大面积覆盖
+        covered_px = np.sum((single > 0) & (cumulative_mask > 0))
+        if covered_px / elem_px >= coverage_thresh:
+            removed += 1
+            continue
+
+        accepted_idx.add(orig_idx)
+        cumulative_mask = np.maximum(cumulative_mask, single)
+
+    result = [elements[i] for i in sorted(accepted_idx)]
+    if removed > 0:
+        print(f'  重叠抑制: 移除 {removed} 个冗余图元')
+    return result
 # ═══════════════════════════════════════════════════════
 
 def draw_results(image_shape, elements, out_shapes, out_overlay, input_img=None):
@@ -617,11 +941,10 @@ def draw_results(image_shape, elements, out_shapes, out_overlay, input_img=None)
         cy = int(elem['center']['y'])
         ang = elem['rotation']
 
-        fill_c = (255, 100, 50, 255)
-        border_c = (255, 255, 255, 255)
-        ov_c = (0, 0, 255)
-
         if elem['type'] == ShapeType.ELLIPSE:
+            fill_c = (0, 230, 255, 255)       # 黄色填充 (BGRA)
+            border_c = (0, 180, 220, 255)
+            ov_c = (0, 200, 255)               # 黄色描边 (BGR)
             s = elem['size']
             axes = (max(int(s['rx']), 1), max(int(s['ry']), 1))
             cv2.ellipse(canvas, (cx, cy), axes, ang, 0, 360, fill_c, -1)
@@ -629,6 +952,9 @@ def draw_results(image_shape, elements, out_shapes, out_overlay, input_img=None)
             cv2.ellipse(overlay, (cx, cy), axes, ang, 0, 360, ov_c, 1)
 
         elif elem['type'] == ShapeType.RECTANGLE:
+            fill_c = (255, 150, 50, 255)       # 蓝色填充 (BGRA)
+            border_c = (255, 100, 30, 255)
+            ov_c = (255, 120, 0)               # 蓝色描边 (BGR)
             rw, rh = elem['size']['width'], elem['size']['height']
             rect = ((cx, cy), (max(rw, 1), max(rh, 1)), ang)
             bpts = np.intp(cv2.boxPoints(rect))
@@ -646,7 +972,7 @@ def draw_results(image_shape, elements, out_shapes, out_overlay, input_img=None)
 
 def main():
     ap = argparse.ArgumentParser(
-        description='Shaper V3 – 曲率分段 + 后处理优化')
+        description='Shaper V6 – 轮廓描边工具')
     ap.add_argument('image_path', nargs='?', default='genshin.png',
                     help='输入图片路径')
     ap.add_argument('--min_size', type=int, default=6,
@@ -657,6 +983,8 @@ def main():
                     help='间距系数 (0.9 = 10%% 重叠)')
     ap.add_argument('-p', '--precision', type=float, default=0.3,
                     help='精度 0.0-1.0 (低=矩形为主, 高=圆形为主)')
+    ap.add_argument('-o', '--output_dir', type=str, default=None,
+                    help='输出目录 (默认=输入图片所在目录)')
     args = ap.parse_args()
 
     # ── 加载图片 ──
@@ -679,15 +1007,20 @@ def main():
     h, w = img.shape[:2]
     img_center = (w / 2.0, h / 2.0)
 
-    # ── Mask 提取 ──
-    if len(img.shape) == 3 and img.shape[2] == 4:
-        _, mask = cv2.threshold(img[:, :, 3], 127, 255, cv2.THRESH_BINARY)
+    # ── 输出目录 ──
+    if args.output_dir:
+        out_dir = args.output_dir
     else:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
-        _, mask = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
+        out_dir = os.path.dirname(os.path.abspath(args.image_path))
+    os.makedirs(out_dir, exist_ok=True)
+
+    # ── P3: 智能 Mask 提取 ──
+    mask = extract_mask(img)
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    # 额外的开操作去除噪点
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
     dist_map = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
@@ -736,10 +1069,13 @@ def main():
                     elems, ci, pts, cum_arc, total_arc,
                     poly, dist_map, img.shape, cfg, img_center)
 
-                # P2-C: 图元扩展
-                elems = expand_elements(elems, poly, cfg)
+                # P2-C: 图元双向扩展
+                elems = expand_elements(elems, poly, cfg, dist_map)
 
         all_elements.extend(elems)
+
+    # ── P2-E: 全局重叠抑制 ──
+    all_elements = suppress_overlap(all_elements, img.shape)
 
     # ── 输出 ──
     output = {
@@ -756,14 +1092,20 @@ def main():
         ],
     }
 
-    with open('result_C_data.json', 'w') as f:
+    with open(os.path.join(out_dir, 'result_C_data.json'), 'w') as f:
         json.dump(output, f, indent=2)
 
+    # 保存 mask 调试图
+    cv2.imwrite(os.path.join(out_dir, 'result_D_mask.png'), mask)
+
     draw_results(img.shape, output['elements'],
-                 'result_A_shapes_only.png', 'result_B_overlay.png', img)
+                 os.path.join(out_dir, 'result_A_shapes_only.png'),
+                 os.path.join(out_dir, 'result_B_overlay.png'), img)
 
     print(f'完成! 共 {len(all_elements)} 个图元')
-    print('输出: result_A_shapes_only.png, result_B_overlay.png, result_C_data.json')
+    print(f'输出目录: {out_dir}')
+    print('  result_A_shapes_only.png, result_B_overlay.png,')
+    print('  result_C_data.json, result_D_mask.png')
 
 
 if __name__ == '__main__':
