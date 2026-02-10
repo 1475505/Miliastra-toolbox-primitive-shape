@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制项目文件
 COPY . .
 
-# 暴露端口（如 server.py 默认 5000）
-EXPOSE 5000
+# 暴露端口（如 server.py 默认 5555）
+EXPOSE 5555
 
 # 启动服务
 CMD ["python", "server.py"]
