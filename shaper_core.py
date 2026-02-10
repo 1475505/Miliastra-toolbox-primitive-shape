@@ -37,7 +37,18 @@ def process_image(image_bytes, config=None):
         raise ValueError("无法解码图片")
 
     h, w = img.shape[:2]
-    img_center = (w / 2.0, h / 2.0)
+    
+    # 原点处理
+    origin_cfg = config.get('origin', {})
+    if origin_cfg.get('type') == 'custom':
+        img_center = (
+            float(origin_cfg.get('x', w / 2.0)),
+            float(origin_cfg.get('y', h / 2.0))
+        )
+    elif origin_cfg.get('type') == 'top_left':
+        img_center = (0.0, 0.0)
+    else:
+        img_center = (w / 2.0, h / 2.0)
 
     # 从 primitive_size 推导 min/max
     prim_size = max(3, min(200, config.get('primitive_size', 15)))
@@ -54,11 +65,30 @@ def process_image(image_bytes, config=None):
     contours, _ = cv2.findContours(
         mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
 
+    allowed_types = None
+    type_colors = {}
+    if 'primitives' in config and config['primitives']:
+        at_set = set()
+        for p in config['primitives']:
+            s = p.get('shape')
+            c = p.get('color')
+            if s == 'circle':
+                at_set.add(fs.ShapeType.ELLIPSE)
+                if c:
+                    type_colors[fs.ShapeType.ELLIPSE] = c
+            elif s == 'rect':
+                at_set.add(fs.ShapeType.RECTANGLE)
+                if c:
+                    type_colors[fs.ShapeType.RECTANGLE] = c
+        if at_set:
+            allowed_types = list(at_set)
+
     cfg = fs.FittingConfig(
         min_size=min_size,
         max_size=max_size,
         spacing_ratio=config.get('spacing', 0.9),
         precision=max(0.0, min(1.0, config.get('precision', 0.3))),
+        allowed_types=allowed_types
     )
 
     # 处理轮廓
@@ -93,6 +123,13 @@ def process_image(image_bytes, config=None):
         all_elements.extend(elems)
 
     all_elements = fs.suppress_overlap(all_elements, img.shape)
+    
+    # 分配颜色
+    for e in all_elements:
+        t = e.get('type')
+        if t in type_colors:
+            e['color'] = type_colors[t]
+            
     elapsed = time.time() - t0
 
     # 编码图片

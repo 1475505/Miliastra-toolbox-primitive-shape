@@ -34,12 +34,13 @@ class ShapeType:
 
 class FittingConfig:
     def __init__(self, min_size=4, max_size=40, spacing_ratio=0.9,
-                 aspect_ratio_limit=2.5, precision=0.5):
+                 aspect_ratio_limit=2.5, precision=0.5, allowed_types=None):
         self.min_size = min_size
         self.max_size = max_size
         self.spacing_ratio = spacing_ratio
         self.aspect_ratio_limit = aspect_ratio_limit
         self.precision = precision
+        self.allowed_types = allowed_types  # list of allowed ShapeType or None
 
         # 精度相关的派生参数
         self.effective_aspect_limit = aspect_ratio_limit + (1.0 - precision) * 3.0
@@ -355,13 +356,6 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
     """
     在轮廓点 (px, py) 处选择得分最高的图元。
     得分 = 图元面积 × 类型加成 (鼓励大图元覆盖更多轮廓)。
-
-    流程:
-    1. 二分查找最大内切圆半径 (距离场约束)
-    2. 基础候选: 该半径的圆
-    3. 根据曲率分段类型, 尝试沿切线拉伸为椭圆/矩形
-    4. 用 Shapely 检验包含性 (不超出轮廓) + 距离场二次验证
-    5. 返回得分最高的候选
     """
     rmin = cfg.min_size / 2
     rmax = cfg.max_size / 2
@@ -371,14 +365,17 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
     # 包含性阈值: 精度越高要求越严格 (0.88 ~ 0.98)
     contain_t = 0.88 + cfg.precision * 0.10
 
-    # ---- 基础候选: 圆 ----
-    cpoly = Point(center).buffer(best_r)
-    candidates = [{
-        'type': ShapeType.ELLIPSE, 'center': center,
-        'size': (best_r, best_r), 'rot': ang,
-        'score': math.pi * best_r ** 2,
-        'poly': cpoly, 'tr': best_r, 'sr': best_r,
-    }]
+    candidates = []
+
+    # ---- 基础候选: 圆 (归类为 ELLIPSE) ----
+    if cfg.allowed_types is None or ShapeType.ELLIPSE in cfg.allowed_types:
+        cpoly = Point(center).buffer(best_r)
+        candidates.append({
+            'type': ShapeType.ELLIPSE, 'center': center,
+            'size': (best_r, best_r), 'rot': ang,
+            'score': math.pi * best_r ** 2,
+            'poly': cpoly, 'tr': best_r, 'sr': best_r,
+        })
 
     # ---- 拉伸候选 (椭圆 / 矩形) ----
     if best_r >= cfg.min_radius_for_stretch:
@@ -404,67 +401,71 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
             mr = best_r * asp
 
             # -- 椭圆候选 --
-            try:
-                ep = make_ellipse_poly(center[0], center[1], mr, best_r, ang)
-                if ep.is_valid:
-                    ia = poly.intersection(ep).area
-                    ea = ep.area
-                    # Shapely 包含性检查 + 距离场边界验证
-                    if ea > 0 and ia >= ea * contain_t:
-                        dm_ratio = dist_map_containment_check(ep, dist_map)
-                        # 拉伸图元dm_ratio要求适当放宽
-                        dm_thresh = max(0.70, 0.88 - asp * 0.03)
-                        if dm_ratio >= dm_thresh:
-                            # V5: 多维评分 — compactness 惩罚随精度缩放
-                            containment = ia / ea
-                            compactness = best_r / mr
-                            # 低精度→几乎不惩罚拉伸; 高精度→惩罚拉伸
-                            cp_weight = cfg.precision  # 0.0~1.0
-                            cp_factor = 1.0 - cp_weight * (1.0 - compactness) * 0.5
-                            score = (math.pi * mr * best_r
-                                     * containment ** 2
-                                     * cp_factor)
-                            candidates.append({
-                                'type': ShapeType.ELLIPSE, 'center': center,
-                                'size': (mr, best_r), 'rot': ang,
-                                'score': score,
-                                'poly': ep, 'tr': mr, 'sr': best_r,
-                            })
-            except Exception:
-                pass
+            if cfg.allowed_types is None or ShapeType.ELLIPSE in cfg.allowed_types:
+                try:
+                    ep = make_ellipse_poly(center[0], center[1], mr, best_r, ang)
+                    if ep.is_valid:
+                        ia = poly.intersection(ep).area
+                        ea = ep.area
+                        # Shapely 包含性检查 + 距离场边界验证
+                        if ea > 0 and ia >= ea * contain_t:
+                            dm_ratio = dist_map_containment_check(ep, dist_map)
+                            # 拉伸图元dm_ratio要求适当放宽
+                            dm_thresh = max(0.70, 0.88 - asp * 0.03)
+                            if dm_ratio >= dm_thresh:
+                                # V5: 多维评分 — compactness 惩罚随精度缩放
+                                containment = ia / ea
+                                compactness = best_r / mr
+                                # 低精度→几乎不惩罚拉伸; 高精度→惩罚拉伸
+                                cp_weight = cfg.precision  # 0.0~1.0
+                                cp_factor = 1.0 - cp_weight * (1.0 - compactness) * 0.5
+                                score = (math.pi * mr * best_r
+                                         * containment ** 2
+                                         * cp_factor)
+                                candidates.append({
+                                    'type': ShapeType.ELLIPSE, 'center': center,
+                                    'size': (mr, best_r), 'rot': ang,
+                                    'score': score,
+                                    'poly': ep, 'tr': mr, 'sr': best_r,
+                                })
+                except Exception:
+                    pass
 
             # -- 矩形候选 --
-            # 矩形的角天然伸出弧形轮廓, 用更宽松的独立包含阈值
-            rect_contain_t = max(0.86, contain_t - (1.0 - cfg.precision) * 0.06)
-            try:
-                rw, rh = mr * 2, best_r * 2
-                rp = make_rect_poly(center[0], center[1], rw, rh, ang)
-                if rp.is_valid:
-                    ia = poly.intersection(rp).area
-                    ra = rp.area
-                    # Shapely 包含性检查 (矩形独立阈值) + 距离场边界验证
-                    if ra > 0 and ia >= ra * rect_contain_t:
-                        dm_ratio = dist_map_containment_check(rp, dist_map)
-                        # 矩形dm_ratio要求比椭圆适度放宽
-                        dm_thresh = max(0.65, 0.85 - asp * 0.04)
-                        if dm_ratio >= dm_thresh:
-                            # V5: 矩形用 containment³ 抑制溢出
-                            containment = ia / ra
-                            compactness = rh / rw
-                            cp_weight = cfg.precision
-                            cp_factor = 1.0 - cp_weight * (1.0 - compactness) * 0.5
-                            score = (rw * rh * (1.0 + rect_bonus)
-                                     * containment ** 3
-                                     * cp_factor)
-                            candidates.append({
-                                'type': ShapeType.RECTANGLE, 'center': center,
-                                'size': (rw, rh), 'rot': ang,
-                                'score': score,
-                                'poly': rp, 'tr': rw / 2, 'sr': rh / 2,
-                            })
-            except Exception:
-                pass
+            if cfg.allowed_types is None or ShapeType.RECTANGLE in cfg.allowed_types:
+                # 矩形的角天然伸出弧形轮廓, 用更宽松的独立包含阈值
+                rect_contain_t = max(0.86, contain_t - (1.0 - cfg.precision) * 0.06)
+                try:
+                    rw, rh = mr * 2, best_r * 2
+                    rp = make_rect_poly(center[0], center[1], rw, rh, ang)
+                    if rp.is_valid:
+                        ia = poly.intersection(rp).area
+                        ra = rp.area
+                        # Shapely 包含性检查 (矩形独立阈值) + 距离场边界验证
+                        if ra > 0 and ia >= ra * rect_contain_t:
+                            dm_ratio = dist_map_containment_check(rp, dist_map)
+                            # 矩形dm_ratio要求比椭圆适度放宽
+                            dm_thresh = max(0.65, 0.85 - asp * 0.04)
+                            if dm_ratio >= dm_thresh:
+                                # V5: 矩形用 containment³ 抑制溢出
+                                containment = ia / ra
+                                compactness = rh / rw
+                                cp_weight = cfg.precision
+                                cp_factor = 1.0 - cp_weight * (1.0 - compactness) * 0.5
+                                score = (rw * rh * (1.0 + rect_bonus)
+                                         * containment ** 3
+                                         * cp_factor)
+                                candidates.append({
+                                    'type': ShapeType.RECTANGLE, 'center': center,
+                                    'size': (rw, rh), 'rot': ang,
+                                    'score': score,
+                                    'poly': rp, 'tr': rw / 2, 'sr': rh / 2,
+                                })
+                except Exception:
+                    pass
 
+    if not candidates:
+        return None
     return max(candidates, key=lambda c: c['score'])
 
 
@@ -517,6 +518,10 @@ def fit_beads(cidx, contour, mask, dist_map, cfg, img_center):
 
         best = best_primitive_at(px, py, tangent, normal,
                                  dist_map, poly, cfg, k, lb)
+
+        if best is None:
+            cursor += cfg.min_size * 0.5
+            continue
 
         cx, cy = best['center']
         elem = {
@@ -731,6 +736,8 @@ def fill_gaps(elements, cidx, contour_pts, cum_arc, total_arc,
                     dist_map, poly, cfg,
                     kappa=k_val, seg_label=lb_val,
                 )
+                if best is None:
+                    continue
                 cx, cy = best['center']
                 elem = {
                     'id': f'{cidx}_gf{iteration}_{added}',

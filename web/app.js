@@ -15,11 +15,19 @@ const canvas = $('mainCanvas'), ctx = canvas.getContext('2d');
 
 /* ── 加载图片 ── */
 let loaded = 0;
-function onLoad() { if (++loaded >= 2) { initUI(); render(); } }
-baseImg = new Image(); baseImg.onload = onLoad;
-baseImg.src = 'data:image/png;base64,' + data.image_base64;
-maskImg = new Image(); maskImg.onload = onLoad;
-maskImg.src = 'data:image/png;base64,' + data.mask_base64;
+let expected = 1;
+function onAsset() { if (++loaded >= expected) { initUI(); render(); } }
+baseImg = new Image(); baseImg.onload = onAsset; baseImg.onerror = onAsset;
+if (data.image_base64) {
+  baseImg.src = 'data:image/png;base64,' + data.image_base64;
+} else {
+  onAsset();
+}
+if (data.mask_base64) {
+  expected = 2;
+  maskImg = new Image(); maskImg.onload = onAsset; maskImg.onerror = onAsset;
+  maskImg.src = 'data:image/png;base64,' + data.mask_base64;
+}
 
 /* ── 初始化 UI ── */
 function initUI() {
@@ -35,6 +43,7 @@ function initUI() {
   $('statRect').textContent    = nR;
   $('statImgSize').textContent = W + '×' + H;
   $('elemCountDisplay').textContent = '图元: ' + data.elements.length;
+  clearDetail();
 }
 
 /* ── 渲染 ── */
@@ -46,7 +55,7 @@ function render() {
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
 
   // 底图
-  if ($('showImage').checked) ctx.drawImage(baseImg, 0, 0, W, H);
+  if ($('showImage').checked && baseImg && baseImg.complete) ctx.drawImage(baseImg, 0, 0, W, H);
   else { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
 
   // Mask
@@ -55,51 +64,126 @@ function render() {
   }
 
   // 图元
-  data.elements.forEach((el, i) => drawElem(el, i === hovered || i === selected));
+  // 渲染逻辑：如果已选中 (selected !== null)，则优先高亮选中项，不显示 hover 高亮
+  // 如果未选中，则显示 hover 高亮
+  data.elements.forEach((el, i) => {
+    var isSelected = (i === selected);
+    // 只有在没有选中项时，才显示 hover 高亮；或者 hover 的就是选中项（虽然此时样式一样）
+    // 为了消除晃动，当 selected 有值时，我们忽略 hovered 的高亮，或者仅当 hovered == selected 时才高亮
+    // 用户说“选中图元还是会晃动”，可能是指 tooltip 或者是 hover 样式冲突
+    // 策略：如果 selected != null，则只高亮 selected。hovered 仅用于 tooltip (如果需要)
+    // 但用户说“选中图元后不要移动”，可能指 tooltip 不要跟手？
+    
+    // 这里我们修改逻辑：
+    // 1. 选中态 (selected) 优先级最高，且样式固定
+    // 2. 悬浮态 (hovered) 仅在没有选中项，或者悬浮项 != 选中项时显示？
+    // 通常逻辑是：选中一项高亮；悬浮另一项也高亮（辅助）。
+    // 但用户觉得“晃动”，可能是指在选中项上移动鼠标时，hovered 状态反复触发导致重绘或样式跳变。
+    // 我们统一：如果 i === selected，则 isHigh = true。
+    // 如果 i === hovered 且 selected === null，则 isHigh = true。
+    // 也就是说，选中时，鼠标在上面移动不会改变样式（因为已经是高亮了）。
+    
+    var highlight = isSelected || (selected === null && i === hovered);
+    drawElem(el, highlight, isSelected); 
+  });
 
   // 原点十字
-  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1.5 / scale;
-  var L = 12 / scale;
-  ctx.beginPath();
-  ctx.moveTo(origin.x - L, origin.y); ctx.lineTo(origin.x + L, origin.y);
-  ctx.moveTo(origin.x, origin.y - L); ctx.lineTo(origin.x, origin.y + L);
-  ctx.stroke();
-  ctx.fillStyle = '#ef4444'; ctx.font = (10 / scale) + 'px sans-serif';
-  ctx.fillText('原点', origin.x + L + 2, origin.y - 3);
+  if ($('showOrigin').checked) {
+    ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1.5 / scale;
+    var L = 12 / scale;
+    ctx.beginPath();
+    ctx.moveTo(origin.x - L, origin.y); ctx.lineTo(origin.x + L, origin.y);
+    ctx.moveTo(origin.x, origin.y - L); ctx.lineTo(origin.x, origin.y + L);
+    ctx.stroke();
+    ctx.fillStyle = '#ef4444'; ctx.font = (10 / scale) + 'px sans-serif';
+    ctx.fillText('原点', origin.x + L + 2, origin.y - 3);
+  }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
-function drawElem(e, hl) {
+function drawElem(e, hl, isSel) {
   ctx.save();
   ctx.translate(e.center.x, e.center.y);
   ctx.rotate((e.rotation || 0) * Math.PI / 180);
   ctx.beginPath();
   if (e.type === 'ellipse') ctx.ellipse(0, 0, e.size.rx, e.size.ry, 0, 0, Math.PI * 2);
   else { var hw = e.size.width / 2, hh = e.size.height / 2; ctx.rect(-hw, -hh, hw * 2, hh * 2); }
+  
   if ($('showFill').checked) {
-    ctx.fillStyle = hl ? 'rgba(59,130,246,0.5)' : 'rgba(255,204,0,0.35)'; ctx.fill();
+    if (isSel) {
+      ctx.fillStyle = 'rgba(59,130,246,0.6)'; // 选中态颜色加深
+    } else if (hl) {
+      ctx.fillStyle = 'rgba(59,130,246,0.4)'; // 悬浮态
+    } else if (e.color) {
+      ctx.fillStyle = hexToRgba(e.color, 0.45);
+    } else {
+      ctx.fillStyle = 'rgba(255,204,0,0.35)';
+    }
+    ctx.fill();
   }
+  
   if ($('showBorder').checked) {
-    ctx.strokeStyle = hl ? '#2563eb' : 'rgba(255,170,0,0.7)';
-    ctx.lineWidth = hl ? 1.5 : 0.8; ctx.stroke();
+    if (isSel) {
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 2.0; // 选中态边框加粗
+    } else if (hl) {
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 1.5;
+    } else if (e.color) {
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 0.8;
+    } else {
+      ctx.strokeStyle = 'rgba(255,170,0,0.7)';
+      ctx.lineWidth = 0.8;
+    }
+    ctx.stroke();
   }
   ctx.restore();
 }
 
+function hexToRgba(hex, alpha) {
+    var c;
+    if(/^#([A-Fa-f0-9]{3}){1,2}$/.test(hex)){
+        c= hex.substring(1).split('');
+        if(c.length== 3){
+            c= [c[0], c[0], c[1], c[1], c[2], c[2]];
+        }
+        c= '0x'+c.join('');
+        return 'rgba('+[(c>>16)&255, (c>>8)&255, c&255].join(',')+','+alpha+')';
+    }
+    return hex; // fallback
+}
+
 /* ── 显示控制 ── */
-['showImage','showMask','showFill','showBorder'].forEach(id => $(id).addEventListener('change', render));
+['showImage','showMask','showFill','showBorder','showOrigin'].forEach(id => $(id).addEventListener('change', render));
 window.addEventListener('resize', render);
 
 /* ── 鼠标交互 ── */
 canvas.addEventListener('mousemove', function(ev) {
   var p = px(ev);
   $('coordsDisplay').textContent = '坐标: (' + p.x.toFixed(1) + ', ' + p.y.toFixed(1) + ')';
+  
+  // 如果已经选中了某个图元，就不再更新 hovered，避免样式跳变
+  // 但这样会导致用户无法感知其他图元。
+  // 根据用户反馈“选中图元还是会晃动”，我们假设用户是指选中项本身的样式不稳定
+  // 前面的 render 逻辑已经确保选中项样式最高优先级。
+  // 此外，tooltip 也是晃动的来源。
+  
   var idx = hitTest(p.x, p.y);
   if (idx !== hovered) { hovered = idx; render(); }
-  // tooltip
+  
+  // Tooltip 逻辑优化：
+  // 1. 如果已选中某项，且鼠标还在该项上，则不显示 tooltip（或显示静态的）？
+  // 用户说“选中图元后不要移动”，可能指 tooltip 不要跟随鼠标。
+  // 策略：当 selected !== null 且 hovered === selected 时，隐藏 tooltip（因为右侧已经有详情了）
+  // 或者固定 tooltip 位置。隐藏是最简单的，因为右侧面板已经展开。
+  
   var tip = $('tooltip');
-  if (idx !== null) {
+  if (idx !== null && idx !== selected) {
+    // 仅当 hover 的不是当前选中项时显示 tooltip
+    // 或者当没有选中项时显示
+    // 这样选中项就不会有 tooltip 跟随晃动
     var el = data.elements[idx];
     var rx = (el.center.x - origin.x).toFixed(1), ry = (el.center.y - origin.y).toFixed(1);
     var sz = el.type === 'ellipse' ? 'rx=' + el.size.rx + ' ry=' + el.size.ry
@@ -113,7 +197,9 @@ canvas.addEventListener('mousemove', function(ev) {
     var r = $('canvasWrap').getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
     tip.style.top  = (ev.clientY - r.top + 14)  + 'px';
-  } else tip.hidden = true;
+  } else {
+    tip.hidden = true;
+  }
 });
 
 canvas.addEventListener('mouseleave', function() {
@@ -123,8 +209,11 @@ canvas.addEventListener('mouseleave', function() {
 
 canvas.addEventListener('click', function(ev) {
   var p = px(ev), idx = hitTest(p.x, p.y);
-  selected = idx; render();
+  selected = idx;
+  hovered = null;
+  render();
   if (idx !== null) showDetail(data.elements[idx], idx);
+  else clearDetail();
 });
 
 canvas.addEventListener('contextmenu', function(ev) {
@@ -139,8 +228,8 @@ canvas.addEventListener('contextmenu', function(ev) {
 /* ── 碰撞检测 ── */
 function px(ev) {
   var r = canvas.getBoundingClientRect();
-  return { x: (ev.clientX - r.left) * W / canvas.width,
-           y: (ev.clientY - r.top)  * H / canvas.height };
+  return { x: (ev.clientX - r.left) * W / r.width,
+           y: (ev.clientY - r.top)  * H / r.height };
 }
 
 function hitTest(px, py) {
@@ -161,16 +250,35 @@ function hitTest(px, py) {
 
 /* ── 详情面板 ── */
 function showDetail(el, idx) {
-  var rx = (el.center.x - origin.x).toFixed(2);
-  var ry = (el.center.y - origin.y).toFixed(2);
+  // 强制确保元素存在再操作
+  var pEmpty = $('infoEmpty');
+  var pPanel = $('infoPanel');
+  if (pEmpty) pEmpty.hidden = true;
+  if (pPanel) pPanel.hidden = false;
+  
+  // 更新数据
   $('infoId').textContent       = el.id || idx;
   $('infoType').textContent     = el.type;
   $('infoCenter').textContent   = '(' + el.center.x + ', ' + el.center.y + ')';
-  $('infoRelative').textContent = '(' + rx + ', ' + ry + ')';
+  $('infoRelative').textContent = '(' + (el.center.x - origin.x).toFixed(2) + ', ' + (el.center.y - origin.y).toFixed(2) + ')';
   $('infoSize').textContent     = el.type === 'ellipse'
     ? 'rx=' + el.size.rx + '  ry=' + el.size.ry
     : el.size.width + ' × ' + el.size.height;
   $('infoRotation').textContent = (el.rotation||0).toFixed(1) + '°';
+}
+
+function clearDetail() {
+  var pEmpty = $('infoEmpty');
+  var pPanel = $('infoPanel');
+  if (pEmpty) pEmpty.hidden = false;
+  if (pPanel) pPanel.hidden = true;
+  
+  $('infoId').textContent = '—';
+  $('infoType').textContent = '—';
+  $('infoCenter').textContent = '—';
+  $('infoRelative').textContent = '—';
+  $('infoSize').textContent = '—';
+  $('infoRotation').textContent = '—';
 }
 
 /* ── 原点控制 ── */
