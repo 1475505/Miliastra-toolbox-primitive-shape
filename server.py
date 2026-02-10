@@ -386,5 +386,6 @@ def result(tid):
         cfg_pr=cfg.get('precision', 0.3))
 
 if __name__ == '__main__':
-    print('🎨 Shaper  http://localhost:5555')
-    app.run(host='0.0.0.0', port=5555, threaded=True)
+    port = int(os.environ.get('PORT', '5555'))
+    print(f'🎨 Shaper  http://localhost:{port}')
+    app.run(host='0.0.0.0', port=port, threaded=True)
