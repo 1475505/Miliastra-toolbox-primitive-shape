@@ -10,7 +10,18 @@ import threading
 import socket
 
 # 确保从项目根目录导入（上级目录）
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包后的环境
+    if hasattr(sys, '_MEIPASS'):
+        # 单文件模式 (Onefile)
+        BASE_DIR = sys._MEIPASS
+    else:
+        # 单目录模式 (Onedir)
+        BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # 开发环境
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 sys.path.insert(0, BASE_DIR)
 os.chdir(BASE_DIR)
 

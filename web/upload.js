@@ -102,9 +102,9 @@
     d.setAttribute('data-shape', shape);
     var label = shape === 'circle' ? '圆形' : '矩形';
     d.innerHTML = '<span class="prim-tag">' + label + '</span>'
-      + '<input type="number" data-f="w" value="' + w + '" min="1" max="10" title="宽">'
+      + '<input type="number" data-f="w" value="' + w + '" min="0.1" max="10" step="0.1" title="宽">'
       + '<span class="prim-x">×</span>'
-      + '<input type="number" data-f="h" value="' + h + '" min="1" max="10" title="高">'
+      + '<input type="number" data-f="h" value="' + h + '" min="0.1" max="10" step="0.1" title="高">'
       + '<input type="color" data-f="color" value="' + color + '">'
       + '<button type="button" class="btn-del">✕</button>';
     d.querySelector('.btn-del').onclick = function() { d.remove(); syncPrimButtons(); };
@@ -121,12 +121,12 @@
   if (btnAddCircle) btnAddCircle.onclick = function() { addPrim('circle', 1, 1, '#f59e0b'); };
   if (btnAddRect) btnAddRect.onclick = function() { addPrim('rect', 1, 10, '#38bdf8'); };
   if (presetCoin) presetCoin.onclick = function() { addPrim('circle', 1, 1, '#f59e0b'); };
-  if (presetRect) presetRect.onclick = function() { addPrim('rect', 1, 10, '#38bdf8'); };
+  if (presetRect) presetRect.onclick = function() { addPrim('rect', 0.5, 5, '#38bdf8'); };
 
   // Init Defaults
   if (primList) {
     addPrim('circle', 1, 1, '#f59e0b');
-    addPrim('rect', 1, 10, '#38bdf8');
+    addPrim('rect', 0.5, 5, '#38bdf8');
   }
 
   // Sliders
@@ -151,8 +151,8 @@
       primList.querySelectorAll('.prim-card').forEach(function(c) {
         arr.push({
           shape: c.getAttribute('data-shape'),
-          w: parseInt(c.querySelector('[data-f=w]').value) || 1,
-          h: parseInt(c.querySelector('[data-f=h]').value) || 1,
+          w: parseFloat(c.querySelector('[data-f=w]').value) || 1,
+          h: parseFloat(c.querySelector('[data-f=h]').value) || 1,
           color: c.querySelector('[data-f=color]').value
         });
       });

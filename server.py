@@ -46,8 +46,9 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
     <form id="mainForm" action="/submit" method="POST" enctype="multipart/form-data">
       <section class="panel-section">
         <h3>1. 选择图片</h3>
-        <div id="dropZone" class="drop-zone">
-          <p>点击、拖拽或粘贴图片到此处</p>
+        <div class="upload-box" id="dropZone">
+          <div class="upload-icon">📁</div>
+          <p>点击、拖拽或<strong>粘贴(Ctrl+V)</strong>图片到此处</p>
           <input type="file" id="fileInput" name="image" accept="image/*" required hidden>
           <img id="prev" class="preview-img" hidden>
           <span id="fname" class="file-name"></span>
@@ -55,7 +56,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
             <span class="icon">✅</span> 已选择图片
           </div>
         </div>
-        <p class="hint">支持 PNG / JPG，边缘清晰效果更好</p>
+        <p class="hint">支持 PNG / JPG / WEBP 等常见格式 (不支持 HEIC/SVG)，边缘清晰效果更好</p>
       </section>
 
       <section class="panel-section">
@@ -63,7 +64,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
         <p class="hint">每种图元仅保留一种规格</p>
         <div class="preset-bar">
           <button type="button" id="presetCoin" class="btn-chip">预设：冒险币 1×1 圆形</button>
-          <button type="button" id="presetRect" class="btn-chip">预设：木质柱子 1×10 矩形</button>
+          <button type="button" id="presetRect" class="btn-chip">预设：木质柱子 0.5×5 矩形</button>
         </div>
         <div id="primList"></div>
         <div class="btn-row">
@@ -172,7 +173,7 @@ PAGE_RESULT = r'''<!DOCTYPE html>
   </div>
   <div class="topbar-right">
     <span id="statusText" class="topbar-status active">完成 — {{ count }} 图元 · {{ elapsed }}s</span>
-    <a href="/" class="btn-ghost">新建</a>
+    <a href="/" class="btn-primary" style="text-decoration:none">新建</a>
   </div>
 </header>
 <div class="app-layout">
@@ -245,6 +246,9 @@ PAGE_RESULT = r'''<!DOCTYPE html>
 
   <!-- 右 -->
   <aside class="panel panel-right">
+    <section class="panel-section">
+      <a href="/" class="btn-primary" style="display:block;text-align:center;text-decoration:none;margin-bottom:0;">⬅ 再来一张</a>
+    </section>
     <section class="panel-section">
       <h3>选中图元详情</h3>
       <p class="hint">点击画布中的图元查看详情</p>

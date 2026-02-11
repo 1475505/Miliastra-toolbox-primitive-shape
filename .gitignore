@@ -1,1 +1,8 @@
 .venv
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+win/build/
+win/dist/

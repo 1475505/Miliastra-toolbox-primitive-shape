@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec — 打包 Shaper 为 Windows 单文件夹应用
+PyInstaller spec — 打包 Shaper 为 Windows 单文件应用 (One-File)
 用法: pyinstaller shaper.spec
-输出: dist/Shaper/Shaper.exe
+输出: dist/Shaper.exe
 """
 
 import sys
@@ -49,8 +49,8 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'tkinter', 'unittest', 'test', 'distutils',
-        'setuptools', 'pip', 'ensurepip',
+        'tkinter', 'unittest', 'test',
+        'pip', 'ensurepip',
         'matplotlib', 'PIL',
     ],
     win_no_prefer_redirects=False,
@@ -64,29 +64,22 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='Shaper',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,          # 无控制台窗口
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,              # 可选: icon='icon.ico'
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='Shaper',
+    icon=None,
 )
