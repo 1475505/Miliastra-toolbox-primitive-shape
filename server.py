@@ -34,6 +34,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
     <h1>Shaper</h1>
     <span class="topbar-subtitle">轮廓描边与图元拟合</span>
     <a href="https://ugc.070077.xyz/" target="_blank" class="topbar-link">📚 AI知识库-千星奇域工具箱</a>
+    <a href="https://github.com/1475505/Miliastra-toolbox-primitive-shape" target="_blank" class="topbar-link">开源地址</a>
   </div>
   <div class="topbar-right">
     <span class="topbar-status">就绪</span>
@@ -170,6 +171,7 @@ PAGE_RESULT = r'''<!DOCTYPE html>
     <h1>Shaper</h1>
     <span class="topbar-subtitle">轮廓描边与图元拟合</span>
     <a href="https://ugc.070077.xyz/" target="_blank" class="topbar-link">📚 AI知识库-千星奇域工具箱</a>
+    <a href="https://github.com/1475505/Miliastra-toolbox-primitive-shape" target="_blank" class="topbar-link">开源地址</a>
   </div>
   <div class="topbar-right">
     <span id="statusText" class="topbar-status active">完成 — {{ count }} 图元 · {{ elapsed }}s</span>
@@ -390,5 +392,6 @@ def result(tid):
         cfg_pr=cfg.get('precision', 0.3))
 
 if __name__ == '__main__':
-    print('🎨 Shaper  http://localhost:5555')
-    app.run(host='0.0.0.0', port=5555, threaded=True)
+    port = int(os.environ.get('PORT', '5555'))
+    print(f'🎨 Shaper  http://localhost:{port}')
+    app.run(host='0.0.0.0', port=port, threaded=True)

@@ -6,12 +6,17 @@ FROM python:3.11-slim
 # 设置工作目录
 WORKDIR /app
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
 # 复制依赖文件
 COPY win/requirements.txt ./
 
 # 安装依赖 (排除桌面端库 pywebview 以减小体积)
 RUN grep -v "pywebview" requirements.txt > requirements.tmp && \
-    pip install --no-cache-dir -r requirements.tmp && \
+    python -m pip install --no-cache-dir --prefer-binary -r requirements.tmp && \
     rm requirements.txt requirements.tmp
 
 # 复制项目文件
