@@ -1,64 +1,42 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""
-PyInstaller spec — 打包 Shaper 为 Windows 单文件应用 (One-File)
-用法: pyinstaller shaper.spec
-输出: dist/Shaper.exe
-"""
-
 import sys
 import os
 
 block_cipher = None
-BASE = os.path.abspath('..')
 
 a = Analysis(
     ['app_desktop.py'],
-    pathex=[BASE],
+    pathex=[],
     binaries=[],
     datas=[
-        # Web 前端资源
-        (os.path.join(BASE, 'web'), 'web'),
-        # Python 核心模块
-        (os.path.join(BASE, 'shaper_core.py'), '.'),
-        (os.path.join(BASE, 'final_shaper.py'), '.'),
-        (os.path.join(BASE, 'server.py'), '.'),
+        ('../web', 'web'),
+        ('../gia', 'gia'),
+        ('../server.py', '.'),
+        ('../shaper_core.py', '.'),
+        ('../final_shaper.py', '.'),
     ],
     hiddenimports=[
-        'flask',
-        'flask.json',
-        'jinja2',
-        'jinja2.ext',
-        'markupsafe',
-        'werkzeug',
-        'werkzeug.serving',
-        'werkzeug.debug',
-        'cv2',
-        'numpy',
-        'scipy',
-        'scipy.optimize',
-        'scipy.spatial',
-        'shapely',
-        'shapely.geometry',
-        'shapely.ops',
+        'engineio.async_drivers.threading',
+        'scipy.special.cython_special',
+        'shapely', 
+        'shapely.geometry', 
+        'shapely.algorithms', 
+        'shapely.coords',
+        'cv2', 
+        'numpy', 
+        'flask', 
         'webview',
-        'shaper_core',
-        'final_shaper',
-        'server',
+        'json_to_gia'
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        'tkinter', 'unittest', 'test',
-        'pip', 'ensurepip',
-        'matplotlib', 'PIL',
-    ],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
-
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(

@@ -41,9 +41,9 @@ pyinstaller win\shaper.spec --clean --noconfirm
 echo.
 echo [4/4] 构建完成!
 echo.
-echo   输出目录: dist\Shaper\
-echo   可执行文件: dist\Shaper\Shaper.exe
+echo   输出目录: dist\
+echo   可执行文件: dist\Shaper.exe
 echo.
-echo   可以将 dist\Shaper 文件夹整体复制到任意位置运行
+echo   可以将 dist 目录下的文件打包发布
 echo.
 pause

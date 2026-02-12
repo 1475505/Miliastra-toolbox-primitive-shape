@@ -10,10 +10,24 @@ import importlib.util
 from flask import (Flask, request, redirect, send_from_directory,
                    render_template_string, Response)
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Detect base directory for frozen (PyInstaller) or normal execution
+if getattr(sys, 'frozen', False):
+    if hasattr(sys, '_MEIPASS'):
+        BASE_DIR = sys._MEIPASS
+    else:
+        BASE_DIR = os.path.dirname(sys.executable)
+        # PyInstaller 6+ onedir mode puts content in _internal
+        if os.path.exists(os.path.join(BASE_DIR, '_internal')):
+            BASE_DIR = os.path.join(BASE_DIR, '_internal')
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 import shaper_core
 
-app = Flask(__name__, static_folder='web', static_url_path='/web')
+app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'web'), static_url_path='/web')
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 
 tasks = {}
@@ -407,8 +421,8 @@ def _load_json_to_gia():
     if _json_to_gia_mod is not None:
         return _json_to_gia_mod
     
-    # Add gia directory to sys.path to support importing .pyc or .pyd directly
-    gia_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gia')
+    # Add gia directory to sys.path
+    gia_dir = os.path.join(BASE_DIR, 'gia')
     if gia_dir not in sys.path:
         sys.path.insert(0, gia_dir)
     
@@ -443,7 +457,7 @@ def download_overlimit_gia(tid):
         elements.append({'type': e.get('type'), 'center': rel, 'size': e.get('size', {}), 'rotation': e.get('rotation', {})})
 
     json_data = {'elements': elements}
-    base_gia_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gia', 'template.gia')
+    base_gia_path = os.path.join(BASE_DIR, 'gia', 'template.gia')
     mod = _load_json_to_gia()
     gia_bytes = mod.convert_json_to_gia_bytes(json_data=json_data, base_gia_path=base_gia_path)
 
