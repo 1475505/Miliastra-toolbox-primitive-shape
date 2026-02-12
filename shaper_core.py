@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import base64
 import time
+import math
 from shapely.geometry import Polygon
 import final_shaper as fs
 
@@ -144,8 +145,36 @@ def process_image(image_bytes, config=None):
     _, mbuf = cv2.imencode('.png', mask)
     mask_b64 = base64.b64encode(mbuf).decode('utf-8')
 
-    elements = [{k: v for k, v in e.items() if not k.startswith('_')}
-                for e in all_elements]
+    elements = []
+    origin_u = {'x': img_center[0] / prim_size, 'y': -img_center[1] / prim_size}
+    for e in all_elements:
+        item = {k: v for k, v in e.items() if not k.startswith('_')}
+
+        cx = float(item['center']['x']) / prim_size
+        cy = -float(item['center']['y']) / prim_size
+
+        if 'size' in item:
+            for k in item['size']:
+                item['size'][k] = round(float(item['size'][k]) / prim_size, 4)
+
+        rot_z = -float(item.get('rotation', 0))
+        if item.get('type') == fs.ShapeType.RECTANGLE and 'size' in item:
+            rect_h = float(item['size'].get('height', 0))
+            theta = math.radians(rot_z)
+            cx += (rect_h * 0.5) * math.sin(theta)
+            cy += -(rect_h * 0.5) * math.cos(theta)
+
+        item['center']['x'] = round(cx, 4)
+        item['center']['y'] = round(cy, 4)
+
+        item['relative_position'] = {
+            'x': round(cx - origin_u['x'], 4),
+            'y': round(cy - origin_u['y'], 4),
+        }
+
+        item['rotation'] = {'x': 0, 'y': 0, 'z': round(rot_z, 4)}
+
+        elements.append(item)
 
     return {
         'image_center': {'x': img_center[0], 'y': img_center[1]},

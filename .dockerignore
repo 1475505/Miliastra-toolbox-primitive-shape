@@ -1,5 +1,6 @@
 __pycache__
 *.pyc
+!gia/json_to_gia.pyc
 *.pyo
 *.pyd
 .Python
@@ -20,3 +21,4 @@ win/
 !win/requirements.txt
 deepseek.jpeg
 mihoyo.png
+gia/json_to_gia.py

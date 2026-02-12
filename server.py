@@ -6,6 +6,7 @@ Shaper Web Server — Flask MPA
 """
 
 import os, sys, json, uuid, traceback, threading, time
+import importlib.util
 from flask import (Flask, request, redirect, send_from_directory,
                    render_template_string, Response)
 
@@ -31,7 +32,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
 </head><body class="page-upload">
 <header class="topbar">
   <div class="topbar-left">
-    <h1>Shaper</h1>
+    <a href="/" style="text-decoration:none;"><h1>千星奇域拼好模工具</h1></a>
     <span class="topbar-subtitle">轮廓描边与图元拟合</span>
     <a href="https://ugc.070077.xyz/" target="_blank" class="topbar-link">📚 AI知识库-千星奇域工具箱</a>
     <a href="https://github.com/1475505/Miliastra-toolbox-primitive-shape" target="_blank" class="topbar-link">开源地址</a>
@@ -47,8 +48,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
     <form id="mainForm" action="/submit" method="POST" enctype="multipart/form-data">
       <section class="panel-section">
         <h3>1. 选择图片</h3>
-        <div class="upload-box" id="dropZone">
-          <div class="upload-icon">📁</div>
+        <div id="dropZone" class="drop-zone">
           <p>点击、拖拽或<strong>粘贴(Ctrl+V)</strong>图片到此处</p>
           <input type="file" id="fileInput" name="image" accept="image/*" required hidden>
           <img id="prev" class="preview-img" hidden>
@@ -139,6 +139,10 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
         <li>支持导出 JSON / PNG</li>
       </ul>
     </section>
+    
+    <div style="margin-top:auto; padding:16px; text-align:center; font-size:12px; color:var(--text-dim); line-height:1.6;">
+      <p>该工具仅供个人兴趣使用，与任何组织无关<br>若侵犯权益，可联系开发者删除</p>
+    </div>
   </aside>
 </div>
 
@@ -164,11 +168,11 @@ PAGE_RESULT = r'''<!DOCTYPE html>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shaper — 结果</title>
 <link rel="stylesheet" href="/web/style.css">
-<script>var RESULT={{ result_json|safe }};var TASK_CFG={{ config_json|safe }};</script>
+<script>var RESULT={{ result_json|safe }};var TASK_CFG={{ config_json|safe }};var TASK_ID="{{ task_id }}";</script>
 </head><body>
 <header class="topbar">
   <div class="topbar-left">
-    <h1>Shaper</h1>
+    <a href="/" style="text-decoration:none;"><h1>千星奇域拼好模工具</h1></a>
     <span class="topbar-subtitle">轮廓描边与图元拟合</span>
     <a href="https://ugc.070077.xyz/" target="_blank" class="topbar-link">📚 AI知识库-千星奇域工具箱</a>
     <a href="https://github.com/1475505/Miliastra-toolbox-primitive-shape" target="_blank" class="topbar-link">开源地址</a>
@@ -186,6 +190,7 @@ PAGE_RESULT = r'''<!DOCTYPE html>
       <h3>导出结果</h3>
       <button id="btnExportJSON" class="btn-sm">导出 JSON</button>
       <button id="btnExportPNG"  class="btn-sm">导出 PNG</button>
+      <button id="btnExportGIAOverlimit" class="btn-sm">下载超限模式gia</button>
     </section>
     <section class="panel-section">
       <h3>原点与坐标</h3>
@@ -267,6 +272,10 @@ PAGE_RESULT = r'''<!DOCTYPE html>
         <tr><td>旋转</td><td id="infoRotation">—</td></tr>
       </table></div>
     </section>
+
+    <div style="margin-top:auto; padding:16px; text-align:center; font-size:12px; color:var(--text-dim); line-height:1.6;">
+      <p>该工具仅供个人研究使用，与任何组织无关<br>若侵犯权益，可联系开发者删除</p>
+    </div>
   </aside>
 
 </div>
@@ -390,6 +399,57 @@ def result(tid):
         cfg_ps=cfg.get('primitive_size', 30),
         cfg_sp=cfg.get('spacing', 0.9),
         cfg_pr=cfg.get('precision', 0.3))
+
+_json_to_gia_mod = None
+
+def _load_json_to_gia():
+    global _json_to_gia_mod
+    if _json_to_gia_mod is not None:
+        return _json_to_gia_mod
+    
+    # Add gia directory to sys.path to support importing .pyc or .pyd directly
+    gia_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gia')
+    if gia_dir not in sys.path:
+        sys.path.insert(0, gia_dir)
+    
+    try:
+        import json_to_gia
+        _json_to_gia_mod = json_to_gia
+        return _json_to_gia_mod
+    except ImportError as e:
+        raise RuntimeError(f'无法加载 json_to_gia 模块: {e}')
+
+@app.route('/download_overlimit_gia/<tid>')
+def download_overlimit_gia(tid):
+    t = tasks.get(tid)
+    if not t or 'result' not in t:
+        return '任务不存在', 404
+    res = t['result']
+    cfg = t.get('config', {})
+    ps = float(cfg.get('primitive_size', 1) or 1)
+    origin_default = res.get('image_center', {'x': 0, 'y': 0})
+    try:
+        origin_x = float(request.args.get('origin_x', origin_default.get('x', 0)))
+        origin_y = float(request.args.get('origin_y', origin_default.get('y', 0)))
+    except:
+        return 'origin 参数无效', 400
+
+    ox = origin_x / ps
+    oy = -origin_y / ps
+    elements = []
+    for e in res.get('elements', []):
+        c = e.get('center', {}) or {}
+        rel = {'x': float(c.get('x', 0)) - ox, 'y': float(c.get('y', 0)) - oy}
+        elements.append({'type': e.get('type'), 'center': rel, 'size': e.get('size', {}), 'rotation': e.get('rotation', {})})
+
+    json_data = {'elements': elements}
+    base_gia_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gia', 'template.gia')
+    mod = _load_json_to_gia()
+    gia_bytes = mod.convert_json_to_gia_bytes(json_data=json_data, base_gia_path=base_gia_path)
+
+    resp = Response(gia_bytes, mimetype='application/octet-stream')
+    resp.headers['Content-Disposition'] = f'attachment; filename="overlimit_{tid}.gia"'
+    return resp
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', '5555'))

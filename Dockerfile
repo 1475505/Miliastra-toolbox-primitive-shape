@@ -1,7 +1,7 @@
 # 基于官方 Python 镜像的 Dockerfile
 # 适用于 shaper 项目，默认启动 server.py
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # 设置工作目录
 WORKDIR /app

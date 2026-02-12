@@ -4,6 +4,7 @@
 const $ = id => document.getElementById(id);
 const data = window.RESULT;
 if (!data) return;
+const ps = data.config.primitive_size || 1;
 
 /* ── 状态 ── */
 const W = data.image_size.width, H = data.image_size.height;
@@ -104,11 +105,12 @@ function render() {
 
 function drawElem(e, hl, isSel) {
   ctx.save();
-  ctx.translate(e.center.x, e.center.y);
-  ctx.rotate((e.rotation || 0) * Math.PI / 180);
+  ctx.translate(e.center.x * ps, -e.center.y * ps);
+  var rot = e.rotation ? (e.rotation.z || 0) : 0;
+  ctx.rotate(-rot * Math.PI / 180);
   ctx.beginPath();
-  if (e.type === 'ellipse') ctx.ellipse(0, 0, e.size.rx, e.size.ry, 0, 0, Math.PI * 2);
-  else { var hw = e.size.width / 2, hh = e.size.height / 2; ctx.rect(-hw, -hh, hw * 2, hh * 2); }
+  if (e.type === 'ellipse') ctx.ellipse(0, 0, e.size.rx * ps, e.size.ry * ps, 0, 0, Math.PI * 2);
+  else { var hw = (e.size.width * ps) / 2, hh = (e.size.height * ps); ctx.rect(-hw, -hh, hw * 2, hh); }
   
   if ($('showFill').checked) {
     if (isSel) {
@@ -162,7 +164,9 @@ window.addEventListener('resize', render);
 /* ── 鼠标交互 ── */
 canvas.addEventListener('mousemove', function(ev) {
   var p = px(ev);
-  $('coordsDisplay').textContent = '坐标: (' + p.x.toFixed(1) + ', ' + p.y.toFixed(1) + ')';
+  var ux = p.x / ps;
+  var uy = -p.y / ps;
+  $('coordsDisplay').textContent = '坐标: (' + ux.toFixed(2) + ', ' + uy.toFixed(2) + ')';
   
   // 如果已经选中了某个图元，就不再更新 hovered，避免样式跳变
   // 但这样会导致用户无法感知其他图元。
@@ -185,14 +189,17 @@ canvas.addEventListener('mousemove', function(ev) {
     // 或者当没有选中项时显示
     // 这样选中项就不会有 tooltip 跟随晃动
     var el = data.elements[idx];
-    var rx = (el.center.x - origin.x).toFixed(1), ry = (el.center.y - origin.y).toFixed(1);
-    var sz = el.type === 'ellipse' ? 'rx=' + el.size.rx + ' ry=' + el.size.ry
-                                    : el.size.width + '×' + el.size.height;
+    var ox = origin.x / ps, oy = -origin.y / ps;
+    var rx = (el.center.x - ox).toFixed(2), ry = (el.center.y - oy).toFixed(2);
+    var sz = el.type === 'ellipse' ? 'rx=' + el.size.rx.toFixed(2) + ' ry=' + el.size.ry.toFixed(2)
+                                    : el.size.width.toFixed(2) + '×' + el.size.height.toFixed(2);
+    var rot = el.rotation ? (el.rotation.z || 0) : 0;
+    
     tip.innerHTML = '<b>#' + idx + '</b> ' + el.type + '<br>'
-      + '中心: (' + el.center.x + ', ' + el.center.y + ')<br>'
+      + '中心: (' + el.center.x.toFixed(2) + ', ' + el.center.y.toFixed(2) + ')<br>'
       + '相对原点: (' + rx + ', ' + ry + ')<br>'
       + '尺寸: ' + sz + '<br>'
-      + '旋转: ' + (el.rotation||0).toFixed(1) + '°';
+      + '旋转: ' + rot.toFixed(1) + '°';
     tip.hidden = false;
     var r = $('canvasWrap').getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
@@ -235,14 +242,17 @@ function px(ev) {
 function hitTest(px, py) {
   for (var i = data.elements.length - 1; i >= 0; i--) {
     var e = data.elements[i];
-    var rot = -(e.rotation||0) * Math.PI / 180;
-    var dx0 = px - e.center.x, dy0 = py - e.center.y;
+    var rot = ((e.rotation ? (e.rotation.z || 0) : 0)) * Math.PI / 180;
+    var cx = e.center.x * ps, cy = -e.center.y * ps;
+    var dx0 = px - cx, dy0 = py - cy;
     var dx = dx0*Math.cos(rot) - dy0*Math.sin(rot);
     var dy = dx0*Math.sin(rot) + dy0*Math.cos(rot);
     if (e.type === 'ellipse') {
-      if (dx*dx/(e.size.rx*e.size.rx) + dy*dy/(e.size.ry*e.size.ry) <= 1) return i;
+      var rx = e.size.rx * ps, ry = e.size.ry * ps;
+      if (dx*dx/(rx*rx) + dy*dy/(ry*ry) <= 1) return i;
     } else {
-      if (Math.abs(dx) <= e.size.width/2 && Math.abs(dy) <= e.size.height/2) return i;
+      var w = e.size.width * ps, h = e.size.height * ps;
+      if (Math.abs(dx) <= w/2 && dy <= 0 && dy >= -h) return i;
     }
   }
   return null;
@@ -259,12 +269,18 @@ function showDetail(el, idx) {
   // 更新数据
   $('infoId').textContent       = el.id || idx;
   $('infoType').textContent     = el.type;
-  $('infoCenter').textContent   = '(' + el.center.x + ', ' + el.center.y + ')';
-  $('infoRelative').textContent = '(' + (el.center.x - origin.x).toFixed(2) + ', ' + (el.center.y - origin.y).toFixed(2) + ')';
+  $('infoCenter').textContent   = '(' + el.center.x.toFixed(2) + ', ' + el.center.y.toFixed(2) + ')';
+  
+  var relX = el.center.x - origin.x / ps;
+  var relY = el.center.y + origin.y / ps;
+  $('infoRelative').textContent = '(' + relX.toFixed(2) + ', ' + relY.toFixed(2) + ')';
+  
   $('infoSize').textContent     = el.type === 'ellipse'
-    ? 'rx=' + el.size.rx + '  ry=' + el.size.ry
-    : el.size.width + ' × ' + el.size.height;
-  $('infoRotation').textContent = (el.rotation||0).toFixed(1) + '°';
+    ? 'rx=' + el.size.rx.toFixed(2) + '  ry=' + el.size.ry.toFixed(2)
+    : el.size.width.toFixed(2) + ' × ' + el.size.height.toFixed(2);
+    
+  var rot = el.rotation ? (el.rotation.z || 0) : 0;
+  $('infoRotation').textContent = rot.toFixed(1) + '°';
 }
 
 function clearDetail() {
@@ -291,16 +307,31 @@ $('btnResetOrigin').addEventListener('click', function() {
 
 /* ── 导出 ── */
 $('btnExportJSON').addEventListener('click', function() {
+  var ox = origin.x / ps, oy = -origin.y / ps;
   var out = data.elements.map(function(e, i) {
+    var relX = +(e.center.x - ox).toFixed(4);
+    var relY = +(e.center.y - oy).toFixed(4);
     return { id: e.id||i, type: e.type, center: e.center,
-      relative: { x: +(e.center.x-origin.x).toFixed(2), y: +(e.center.y-origin.y).toFixed(2) },
+      relative: { x: relX, y: relY },
       size: e.size, rotation: e.rotation };
   });
-  dl(new Blob([JSON.stringify({ origin:origin, image_size:data.image_size,
+  dl(new Blob([JSON.stringify({ origin:{ x: ox, y: oy }, image_size:data.image_size,
     config:window.TASK_CFG, elements:out }, null, 2)], {type:'application/json'}), 'shaper_result.json');
 });
 $('btnExportPNG').addEventListener('click', function() {
   canvas.toBlob(function(b) { dl(b, 'shaper_result.png'); }, 'image/png');
+});
+var btnGIA = $('btnExportGIAOverlimit');
+if (btnGIA) btnGIA.addEventListener('click', function() {
+  var tid = window.TASK_ID || '';
+  var qs = new URLSearchParams({ origin_x: origin.x, origin_y: origin.y }).toString();
+  fetch('/download_overlimit_gia/' + encodeURIComponent(tid) + '?' + qs)
+    .then(function(resp) {
+      if (!resp.ok) return resp.text().then(function(t) { throw new Error(t || ('HTTP ' + resp.status)); });
+      return resp.blob();
+    })
+    .then(function(blob) { dl(blob, '超限模式_' + (tid || 'result') + '.gia'); })
+    .catch(function(err) { alert('下载失败: ' + (err && err.message ? err.message : err)); });
 });
 function dl(blob, name) {
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob);

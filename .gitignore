@@ -6,3 +6,9 @@ dist/
 *.spec
 win/build/
 win/dist/
+
+# GIA Workspace
+gia/*
+!gia/template.gia
+!gia/json_to_gia.pyc
+!gia/json_to_gia.pyd
