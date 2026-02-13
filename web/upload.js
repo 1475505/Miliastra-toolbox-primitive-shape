@@ -9,8 +9,20 @@
   var uploadReady = document.getElementById('uploadReady');
   var btnSubmit = document.getElementById('btnSubmit');
   var mainForm = document.getElementById('mainForm');
-  var primList = document.getElementById('primList');
   var primJson = document.getElementById('primJson');
+
+  // 预设配置
+  var PRESETS = {
+    circle: {
+      coin: { w: 1, h: 1, type_id: 10005009, color: '#f59e0b' },
+      geo_badge: { w: 0.3, h: 0.3, type_id: 20001285, color: '#a855f7', rot_z: 90, rot_y_add: 90 },
+      custom: { w: 1, h: 1, type_id: 10005009 }
+    },
+    rect: {
+      wood_pillar: { w: 0.5, h: 5, type_id: 20002129, color: '#38bdf8' },
+      custom: { w: 0.5, h: 5, type_id: 20002129 }
+    }
+  };
 
   // File Handling Logic
   function handleFile(file) {
@@ -76,58 +88,50 @@
     });
   }
 
-  // Primitive Management
-  function syncPrimButtons() {
-    if (!primList) return;
-    var hasCircle = !!primList.querySelector('[data-shape="circle"]');
-    var hasRect = !!primList.querySelector('[data-shape="rect"]');
-    var btnCircle = document.getElementById('btnAddCircle');
-    var btnRect = document.getElementById('btnAddRect');
-    if (btnCircle) btnCircle.disabled = hasCircle;
-    if (btnRect) btnRect.disabled = hasRect;
+  // 互斥选择逻辑
+  function setupRadioToggle(circleName, rectName) {
+    // 圆形选择
+    var circleRadios = document.getElementsByName(circleName);
+    var circleCustomFields = document.getElementById('circleCustomFields');
+    var circleColor = document.getElementById('circleColor');
+    
+    circleRadios.forEach(function(radio) {
+      radio.addEventListener('change', function() {
+        if (circleCustomFields) {
+          circleCustomFields.hidden = (this.value !== 'custom');
+        }
+        // 当选择预设时，更新颜色
+        if (this.value !== 'custom' && circleColor) {
+          var preset = PRESETS.circle[this.value];
+          if (preset && preset.color) {
+            circleColor.value = preset.color;
+          }
+        }
+      });
+    });
+
+    // 矩形选择
+    var rectRadios = document.getElementsByName(rectName);
+    var rectCustomFields = document.getElementById('rectCustomFields');
+    var rectColor = document.getElementById('rectColor');
+    
+    rectRadios.forEach(function(radio) {
+      radio.addEventListener('change', function() {
+        if (rectCustomFields) {
+          rectCustomFields.hidden = (this.value !== 'custom');
+        }
+        // 当选择预设时，更新颜色
+        if (this.value !== 'custom' && rectColor) {
+          var preset = PRESETS.rect[this.value];
+          if (preset && preset.color) {
+            rectColor.value = preset.color;
+          }
+        }
+      });
+    });
   }
 
-  function addPrim(shape, w, h, color) {
-    if (!primList) return;
-    shape = shape || 'circle'; w = w || 1; h = h || 1; color = color || '#ffcc00';
-    var existing = primList.querySelector('[data-shape="' + shape + '"]');
-    if (existing) {
-      existing.querySelector('[data-f=w]').value = w;
-      existing.querySelector('[data-f=h]').value = h;
-      existing.querySelector('[data-f=color]').value = color;
-      return;
-    }
-    var d = document.createElement('div');
-    d.className = 'prim-card';
-    d.setAttribute('data-shape', shape);
-    var label = shape === 'circle' ? '圆形' : '矩形';
-    d.innerHTML = '<span class="prim-tag">' + label + '</span>'
-      + '<input type="number" data-f="w" value="' + w + '" min="0.1" max="10" step="0.1" title="宽">'
-      + '<span class="prim-x">×</span>'
-      + '<input type="number" data-f="h" value="' + h + '" min="0.1" max="10" step="0.1" title="高">'
-      + '<input type="color" data-f="color" value="' + color + '">'
-      + '<button type="button" class="btn-del">✕</button>';
-    d.querySelector('.btn-del').onclick = function() { d.remove(); syncPrimButtons(); };
-    primList.appendChild(d);
-    syncPrimButtons();
-  }
-
-  // Bind Buttons
-  var btnAddCircle = document.getElementById('btnAddCircle');
-  var btnAddRect = document.getElementById('btnAddRect');
-  var presetCoin = document.getElementById('presetCoin');
-  var presetRect = document.getElementById('presetRect');
-
-  if (btnAddCircle) btnAddCircle.onclick = function() { addPrim('circle', 1, 1, '#f59e0b'); };
-  if (btnAddRect) btnAddRect.onclick = function() { addPrim('rect', 1, 10, '#38bdf8'); };
-  if (presetCoin) presetCoin.onclick = function() { addPrim('circle', 1, 1, '#f59e0b'); };
-  if (presetRect) presetRect.onclick = function() { addPrim('rect', 0.5, 5, '#38bdf8'); };
-
-  // Init Defaults
-  if (primList) {
-    addPrim('circle', 1, 1, '#f59e0b');
-    addPrim('rect', 0.5, 5, '#38bdf8');
-  }
+  setupRadioToggle('circle_type', 'rect_type');
 
   // Sliders
   ['primSize', 'precision', 'spacing'].forEach(function(id) {
@@ -147,16 +151,76 @@
   // Submit
   if (mainForm) {
     mainForm.onsubmit = function() {
-      var arr = [];
-      primList.querySelectorAll('.prim-card').forEach(function(c) {
-        arr.push({
-          shape: c.getAttribute('data-shape'),
-          w: parseFloat(c.querySelector('[data-f=w]').value) || 1,
-          h: parseFloat(c.querySelector('[data-f=h]').value) || 1,
-          color: c.querySelector('[data-f=color]').value
-        });
+      // 获取圆形设置
+      var circleType = 'coin';
+      var circleRadios = document.getElementsByName('circle_type');
+      circleRadios.forEach(function(r) { if (r.checked) circleType = r.value; });
+      
+      var circleW = 1, circleH = 1, circleColorVal = '#f59e0b';
+      var circleCustomFields = document.getElementById('circleCustomFields');
+      var circleWInput = document.getElementById('circleW');
+      var circleHInput = document.getElementById('circleH');
+      var circleColorInput = document.getElementById('circleColor');
+      
+      if (circleType === 'custom' && circleCustomFields && !circleCustomFields.hidden) {
+        circleW = parseFloat(circleWInput && circleWInput.value) || 1;
+        circleH = parseFloat(circleHInput && circleHInput.value) || 1;
+      } else {
+        var preset = PRESETS.circle[circleType];
+        circleW = preset.w;
+        circleH = preset.h;
+      }
+      circleColorVal = circleColorInput ? circleColorInput.value : '#f59e0b';
+
+      // 获取矩形设置
+      var rectType = 'wood_pillar';
+      var rectRadios = document.getElementsByName('rect_type');
+      rectRadios.forEach(function(r) { if (r.checked) rectType = r.value; });
+      
+      var rectW = 0.5, rectH = 5, rectColorVal = '#38bdf8';
+      var rectCustomFields = document.getElementById('rectCustomFields');
+      var rectWInput = document.getElementById('rectW');
+      var rectHInput = document.getElementById('rectH');
+      var rectColorInput = document.getElementById('rectColor');
+      
+      if (rectType === 'custom' && rectCustomFields && !rectCustomFields.hidden) {
+        rectW = parseFloat(rectWInput && rectWInput.value) || 0.5;
+        rectH = parseFloat(rectHInput && rectHInput.value) || 5;
+      } else {
+        var preset = PRESETS.rect[rectType];
+        rectW = preset.w;
+        rectH = preset.h;
+      }
+      rectColorVal = rectColorInput ? rectColorInput.value : '#38bdf8';
+
+      // 构建primitives数据
+      var primitives = [];
+      
+      // 添加圆形
+      var circlePreset = PRESETS.circle[circleType];
+      primitives.push({
+        shape: 'circle',
+        preset_type: circleType,
+        w: circleW,
+        h: circleH,
+        color: circleColorVal,
+        type_id: circlePreset.type_id,
+        rot_z: circlePreset.rot_z || 0,
+        rot_y_add: circlePreset.rot_y_add || 0
       });
-      if (primJson) primJson.value = JSON.stringify(arr);
+      
+      // 添加矩形
+      var rectPreset = PRESETS.rect[rectType];
+      primitives.push({
+        shape: 'rect',
+        preset_type: rectType,
+        w: rectW,
+        h: rectH,
+        color: rectColorVal,
+        type_id: rectPreset.type_id
+      });
+
+      if (primJson) primJson.value = JSON.stringify(primitives);
     };
   }
 

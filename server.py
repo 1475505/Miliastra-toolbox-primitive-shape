@@ -76,16 +76,56 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
 
       <section class="panel-section">
         <h3>2. 图元</h3>
-        <p class="hint">每种图元仅保留一种规格</p>
+        <p class="hint">圆形/矩形各互斥选择一种规格</p>
+        
+        <!-- 圆形选择 -->
         <div class="preset-bar">
-          <button type="button" id="presetCoin" class="btn-chip">预设：冒险币 1×1 圆形</button>
-          <button type="button" id="presetRect" class="btn-chip">预设：木质柱子 0.5×5 矩形</button>
+          <span class="preset-label">圆形：</span>
+          <label class="radio-chip">
+            <input type="radio" name="circle_type" value="coin" checked>
+            <span>冒险币 1×1</span>
+          </label>
+          <label class="radio-chip">
+            <input type="radio" name="circle_type" value="geo_badge">
+            <span>岩元素徽章 0.3×0.3</span>
+          </label>
+          <label class="radio-chip">
+            <input type="radio" name="circle_type" value="custom">
+            <span>自定义</span>
+          </label>
         </div>
-        <div id="primList"></div>
-        <div class="btn-row">
-          <button type="button" id="btnAddCircle" class="btn-sm">添加圆形</button>
-          <button type="button" id="btnAddRect" class="btn-sm">添加矩形</button>
+        <div id="circleCustomFields" class="custom-fields" hidden>
+          <input type="number" id="circleW" value="1" min="0.1" max="10" step="0.1" title="宽">
+          <span class="prim-x">×</span>
+          <input type="number" id="circleH" value="1" min="0.1" max="10" step="0.1" title="高">
         </div>
+        <div class="color-picker-row">
+          <span class="preset-label">圆形颜色：</span>
+          <input type="color" id="circleColor" value="#f59e0b">
+        </div>
+        
+        <!-- 矩形选择 -->
+        <div class="preset-bar" style="margin-top:12px;">
+          <span class="preset-label">矩形：</span>
+          <label class="radio-chip">
+            <input type="radio" name="rect_type" value="wood_pillar" checked>
+            <span>木质柱子 0.5×5</span>
+          </label>
+          <label class="radio-chip">
+            <input type="radio" name="rect_type" value="custom">
+            <span>自定义</span>
+          </label>
+        </div>
+        <div id="rectCustomFields" class="custom-fields" hidden>
+          <input type="number" id="rectW" value="0.5" min="0.1" max="10" step="0.1" title="宽">
+          <span class="prim-x">×</span>
+          <input type="number" id="rectH" value="5" min="0.1" max="10" step="0.1" title="高">
+        </div>
+        <div class="color-picker-row">
+          <span class="preset-label">矩形颜色：</span>
+          <input type="color" id="rectColor" value="#38bdf8">
+        </div>
+        
         <input type="hidden" name="primitives_json" id="primJson">
       </section>
 
@@ -448,13 +488,41 @@ def download_overlimit_gia(tid):
     except:
         return 'origin 参数无效', 400
 
+    # 获取primitives配置（包含预设信息）
+    primitives = cfg.get('primitives', [])
+    prim_map = {}
+    for p in primitives:
+        shape = p.get('shape')
+        if shape:
+            prim_map[shape] = p
+
     ox = origin_x / ps
     oy = -origin_y / ps
     elements = []
     for e in res.get('elements', []):
         c = e.get('center', {}) or {}
         rel = {'x': float(c.get('x', 0)) - ox, 'y': float(c.get('y', 0)) - oy}
-        elements.append({'type': e.get('type'), 'center': rel, 'size': e.get('size', {}), 'rotation': e.get('rotation', {})})
+        
+        elem_data = {'type': e.get('type'), 'center': rel, 'size': e.get('size', {}), 'rotation': e.get('rotation', {})}
+        
+        # 根据元素类型获取对应的预设信息
+        elem_type = e.get('type')
+        if elem_type == 'ellipse':
+            preset = prim_map.get('circle', {})
+        elif elem_type == 'rectangle':
+            preset = prim_map.get('rect', {})
+        else:
+            preset = {}
+        
+        # 添加预设信息到元素数据
+        if preset.get('type_id'):
+            elem_data['type_id'] = preset['type_id']
+        if preset.get('rot_z'):
+            elem_data['rot_z'] = preset['rot_z']
+        if preset.get('rot_y_add'):
+            elem_data['rot_y_add'] = preset['rot_y_add']
+        
+        elements.append(elem_data)
 
     json_data = {'elements': elements}
     base_gia_path = os.path.join(BASE_DIR, 'gia', 'template.gia')
