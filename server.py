@@ -87,7 +87,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
           </label>
           <label class="radio-chip">
             <input type="radio" name="circle_type" value="geo_badge">
-            <span>岩元素徽章 0.3×0.3</span>
+            <span>岩元素徽章 0.3×0.3 <em class="load-hint">(低负载)</em></span>
           </label>
           <label class="radio-chip">
             <input type="radio" name="circle_type" value="custom">
@@ -191,6 +191,9 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
       <ul class="tips">
         <li>结果页可右键设置原点</li>
         <li>支持导出 JSON / PNG</li>
+        <li>📺 <a href="https://www.bilibili.com/video/BV1RccnzKECg" target="_blank" style="color:inherit;">视频示例</a></li>
+        <li>💡 建议上传小尺寸图片，节约性能</li>
+        <li>👥 用户QQ群：1007538100</li>
       </ul>
     </section>
     

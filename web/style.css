@@ -207,7 +207,7 @@ body {
 
 /* Panels */
 .panel {
-  width: 340px;
+  width: 400px;
   flex-shrink: 0;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-subtle);
@@ -787,4 +787,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .color-picker-row input[type="color"] {
   width: 32px;
   height: 32px;
+}
+
+.load-hint {
+  font-style: normal;
+  font-size: 10px;
+  color: #10b981;
+  background: #d1fae5;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-left: 4px;
 }
