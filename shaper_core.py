@@ -83,6 +83,9 @@ def process_image(image_bytes, config=None):
                     type_colors[fs.ShapeType.RECTANGLE] = c
         if at_set:
             allowed_types = list(at_set)
+        else:
+            # 所有图元类型都被禁用，设置空列表表示不生成任何图元
+            allowed_types = []
 
     cfg = fs.FittingConfig(
         min_size=min_size,

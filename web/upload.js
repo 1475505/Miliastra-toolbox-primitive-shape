@@ -165,14 +165,30 @@
       if (circleType === 'custom' && circleCustomFields && !circleCustomFields.hidden) {
         circleW = parseFloat(circleWInput && circleWInput.value) || 1;
         circleH = parseFloat(circleHInput && circleHInput.value) || 1;
-      } else {
+      } else if (circleType !== 'disabled') {
         var preset = PRESETS.circle[circleType];
         circleW = preset.w;
         circleH = preset.h;
       }
       circleColorVal = circleColorInput ? circleColorInput.value : '#f59e0b';
 
-      // 获取矩形设置
+      // 构建primitives数据
+      var primitives = [];
+      
+      // 添加圆形（仅在未禁用时）
+      if (circleType !== 'disabled') {
+        var circlePreset = PRESETS.circle[circleType];
+        primitives.push({
+          shape: 'circle',
+          preset_type: circleType,
+          w: circleW,
+          h: circleH,
+          color: circleColorVal,
+          type_id: circlePreset.type_id,
+          rot_z: circlePreset.rot_z || 0,
+          rot_y_add: circlePreset.rot_y_add || 0
+        });
+      }
       var rectType = 'wood_pillar';
       var rectRadios = document.getElementsByName('rect_type');
       rectRadios.forEach(function(r) { if (r.checked) rectType = r.value; });
@@ -186,7 +202,7 @@
       if (rectType === 'custom' && rectCustomFields && !rectCustomFields.hidden) {
         rectW = parseFloat(rectWInput && rectWInput.value) || 0.5;
         rectH = parseFloat(rectHInput && rectHInput.value) || 5;
-      } else {
+      } else if (rectType !== 'disabled') {
         var preset = PRESETS.rect[rectType];
         rectW = preset.w;
         rectH = preset.h;
@@ -209,16 +225,18 @@
         rot_y_add: circlePreset.rot_y_add || 0
       });
       
-      // 添加矩形
-      var rectPreset = PRESETS.rect[rectType];
-      primitives.push({
-        shape: 'rect',
-        preset_type: rectType,
-        w: rectW,
-        h: rectH,
-        color: rectColorVal,
-        type_id: rectPreset.type_id
-      });
+      // 添加矩形（仅在未禁用时）
+      if (rectType !== 'disabled') {
+        var rectPreset = PRESETS.rect[rectType];
+        primitives.push({
+          shape: 'rect',
+          preset_type: rectType,
+          w: rectW,
+          h: rectH,
+          color: rectColorVal,
+          type_id: rectPreset.type_id
+        });
+      }
 
       if (primJson) primJson.value = JSON.stringify(primitives);
     };

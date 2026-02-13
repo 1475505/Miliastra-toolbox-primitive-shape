@@ -76,7 +76,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
 
       <section class="panel-section">
         <h3>2. 图元</h3>
-        <p class="hint">圆形/矩形各互斥选择一种规格</p>
+        <p class="hint">圆形必须有，矩形可禁用</p>
         
         <!-- 圆形选择 -->
         <div class="preset-bar">
@@ -114,6 +114,10 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
           <label class="radio-chip">
             <input type="radio" name="rect_type" value="custom">
             <span>自定义</span>
+          </label>
+          <label class="radio-chip radio-disable">
+            <input type="radio" name="rect_type" value="disabled">
+            <span>禁用</span>
           </label>
         </div>
         <div id="rectCustomFields" class="custom-fields" hidden>
