@@ -1,4 +1,4 @@
-![](image2.png)
+![](demo/image2.png)
 
 轮廓描边工具
 
