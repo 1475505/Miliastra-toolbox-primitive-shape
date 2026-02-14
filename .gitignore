@@ -12,3 +12,5 @@ gia/*
 !gia/template.gia
 !gia/json_to_gia.pyc
 !gia/json_to_gia.pyd
+
+.vscode/
