@@ -514,12 +514,14 @@ def download_overlimit_gia(tid):
         else:
             preset = {}
         
-        # 添加预设信息到元素数据
-        if preset.get('type_id'):
-            elem_data['type_id'] = preset['type_id']
-        if preset.get('rot_z'):
+        # 兼容不同版本的 GIA 转换器字段命名。
+        preset_type_id = preset.get('type_id')
+        if preset_type_id is not None:
+            elem_data['type_id'] = preset_type_id
+            elem_data['element_type_id'] = preset_type_id
+        if 'rot_z' in preset and preset['rot_z'] is not None:
             elem_data['rot_z'] = preset['rot_z']
-        if preset.get('rot_y_add'):
+        if 'rot_y_add' in preset and preset['rot_y_add'] is not None:
             elem_data['rot_y_add'] = preset['rot_y_add']
         
         elements.append(elem_data)
