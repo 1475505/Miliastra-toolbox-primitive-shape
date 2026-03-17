@@ -25,6 +25,7 @@
       custom: { w: 1, h: 1, type_id: 10005009 }
     },
     rect: {
+      wood_box: { w: 1.0, h: 1.0, type_id: 20001224, color: '#fcd34d' },
       wood_pillar: { w: 0.5, h: 5, type_id: 20002129, color: '#38bdf8' },
       custom: { w: 0.5, h: 5, type_id: 20002129 }
     }
@@ -95,7 +96,7 @@
   }
 
   // 互斥选择逻辑
-  function setupRadioToggle(circleSelectId, rectName) {
+  function setupRadioToggle(circleSelectId, rectSelectId) {
     // 圆形选择
     var circleSelect = document.getElementById(circleSelectId);
     var circleCustomFields = document.getElementById('circleCustomFields');
@@ -117,12 +118,12 @@
     }
 
     // 矩形选择
-    var rectRadios = document.getElementsByName(rectName);
+    var rectSelect = document.getElementById(rectSelectId);
     var rectCustomFields = document.getElementById('rectCustomFields');
     var rectColor = document.getElementById('rectColor');
     
-    rectRadios.forEach(function(radio) {
-      radio.addEventListener('change', function() {
+    if (rectSelect) {
+      rectSelect.addEventListener('change', function() {
         if (rectCustomFields) {
           rectCustomFields.hidden = (this.value !== 'custom');
         }
@@ -134,10 +135,10 @@
           }
         }
       });
-    });
+    }
   }
 
-  setupRadioToggle('circleTypeSelect', 'rect_type');
+  setupRadioToggle('circleTypeSelect', 'rectTypeSelect');
 
   // Sliders
   ['primSize', 'precision', 'spacing'].forEach(function(id) {
@@ -198,8 +199,13 @@
         });
       }
       var rectType = 'disabled';
-      var rectRadios = document.getElementsByName('rect_type');
-      rectRadios.forEach(function(r) { if (r.checked) rectType = r.value; });
+      var rectSelect = document.getElementById('rectTypeSelect');
+      if (rectSelect) {
+        rectType = rectSelect.value;
+      } else {
+        var rectRadios = document.getElementsByName('rect_type');
+        rectRadios.forEach(function(r) { if (r.checked) rectType = r.value; });
+      }
       
       var rectW = 0.5, rectH = 5, rectColorVal = '#38bdf8';
       var rectCustomFields = document.getElementById('rectCustomFields');

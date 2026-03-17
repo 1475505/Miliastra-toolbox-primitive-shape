@@ -106,18 +106,12 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
         <!-- 矩形选择 -->
         <div class="preset-bar" style="margin-top:12px;">
           <span class="preset-label">矩形：</span>
-          <label class="radio-chip">
-            <input type="radio" name="rect_type" value="wood_pillar">
-            <span>木质柱子 0.5×5</span>
-          </label>
-          <label class="radio-chip">
-            <input type="radio" name="rect_type" value="custom">
-            <span>自定义</span>
-          </label>
-          <label class="radio-chip radio-disable">
-            <input type="radio" name="rect_type" value="disabled" checked>
-            <span>禁用</span>
-          </label>
+          <select name="rect_type" id="rectTypeSelect" class="form-select" style="min-width: 150px; margin-right: 12px; margin-top: 4px; margin-bottom: 4px;">
+            <option value="wood_box">木质箱子 1.0×1.0</option>
+            <option value="wood_pillar">木质柱子 0.5×5.0</option>
+            <option value="custom">自定义</option>
+            <option value="disabled" selected>禁用</option>
+          </select>
         </div>
         <div id="rectCustomFields" class="custom-fields" hidden>
           <input type="number" id="rectW" value="0.5" min="0.1" max="10" step="0.1" title="宽">

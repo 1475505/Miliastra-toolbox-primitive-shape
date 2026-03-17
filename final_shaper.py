@@ -377,6 +377,19 @@ def best_primitive_at(px, py, tangent, normal, dist_map, poly, cfg,
             'poly': cpoly, 'tr': best_r, 'sr': best_r,
         })
 
+    # ---- 基础候选: 方 (归类为 RECTANGLE, 用于纯矩形兜底) ----
+    if cfg.allowed_types is None or ShapeType.RECTANGLE in cfg.allowed_types:
+        # 正方形的对角线不宜超过太多以免角溢出过多，基础使用 1.6 * best_r 作为边长
+        bs = best_r * 1.6
+        rpoly = make_rect_poly(center[0], center[1], bs, bs, ang)
+        if rpoly.is_valid:
+            candidates.append({
+                'type': ShapeType.RECTANGLE, 'center': center,
+                'size': (bs, bs), 'rot': ang,
+                'score': (bs * bs) * 0.9, # 优先级比圆稍低，避免全选用方
+                'poly': rpoly, 'tr': bs / 2, 'sr': bs / 2,
+            })
+
     # ---- 拉伸候选 (椭圆 / 矩形) ----
     if best_r >= cfg.min_radius_for_stretch:
         seg = SEG_NAMES.get(seg_label, 'curved')
