@@ -181,23 +181,6 @@
       }
       circleColorVal = circleColorInput ? circleColorInput.value : '#f59e0b';
 
-      // 构建primitives数据
-      var primitives = [];
-      
-      // 添加圆形（仅在未禁用时）
-      if (circleType !== 'disabled') {
-        var circlePreset = PRESETS.circle[circleType];
-        primitives.push({
-          shape: 'circle',
-          preset_type: circleType,
-          w: circleW,
-          h: circleH,
-          color: circleColorVal,
-          type_id: circlePreset.type_id,
-          rot_z: circlePreset.rot_z || 0,
-          rot_y_add: circlePreset.rot_y_add || 0
-        });
-      }
       var rectType = 'disabled';
       var rectSelect = document.getElementById('rectTypeSelect');
       if (rectSelect) {
