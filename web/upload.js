@@ -15,7 +15,13 @@
   var PRESETS = {
     circle: {
       coin: { w: 1, h: 1, type_id: 10005009, color: '#f59e0b' },
-      geo_badge: { w: 0.3, h: 0.3, type_id: 20001285, color: '#a855f7', rot_z: 90, rot_y_add: 90 },
+      electro_badge: { w: 0.3, h: 0.3, type_id: 20001281, color: '#c084fc', rot_z: 90, rot_y_add: 90 },
+      pyro_badge: { w: 0.3, h: 0.3, type_id: 20001282, color: '#ef4444', rot_z: 90, rot_y_add: 90 },
+      dendro_badge: { w: 0.3, h: 0.3, type_id: 20001283, color: '#22c55e', rot_z: 90, rot_y_add: 90 },
+      cryo_badge: { w: 0.3, h: 0.3, type_id: 20001284, color: '#38bdf8', rot_z: 90, rot_y_add: 90 },
+      geo_badge: { w: 0.3, h: 0.3, type_id: 20001285, color: '#eab308', rot_z: 90, rot_y_add: 90 },
+      hydro_badge: { w: 0.3, h: 0.3, type_id: 20001286, color: '#3b82f6', rot_z: 90, rot_y_add: 90 },
+      anemo_badge: { w: 0.3, h: 0.3, type_id: 20001287, color: '#10b981', rot_z: 90, rot_y_add: 90 },
       custom: { w: 1, h: 1, type_id: 10005009 }
     },
     rect: {
@@ -89,14 +95,14 @@
   }
 
   // 互斥选择逻辑
-  function setupRadioToggle(circleName, rectName) {
+  function setupRadioToggle(circleSelectId, rectName) {
     // 圆形选择
-    var circleRadios = document.getElementsByName(circleName);
+    var circleSelect = document.getElementById(circleSelectId);
     var circleCustomFields = document.getElementById('circleCustomFields');
     var circleColor = document.getElementById('circleColor');
     
-    circleRadios.forEach(function(radio) {
-      radio.addEventListener('change', function() {
+    if (circleSelect) {
+      circleSelect.addEventListener('change', function() {
         if (circleCustomFields) {
           circleCustomFields.hidden = (this.value !== 'custom');
         }
@@ -108,7 +114,7 @@
           }
         }
       });
-    });
+    }
 
     // 矩形选择
     var rectRadios = document.getElementsByName(rectName);
@@ -131,7 +137,7 @@
     });
   }
 
-  setupRadioToggle('circle_type', 'rect_type');
+  setupRadioToggle('circleTypeSelect', 'rect_type');
 
   // Sliders
   ['primSize', 'precision', 'spacing'].forEach(function(id) {
@@ -152,11 +158,13 @@
   if (mainForm) {
     mainForm.onsubmit = function() {
       // 获取圆形设置
-      var circleType = 'coin';
-      var circleRadios = document.getElementsByName('circle_type');
-      circleRadios.forEach(function(r) { if (r.checked) circleType = r.value; });
+      var circleType = 'geo_badge'; // default
+      var circleSelect = document.getElementById('circleTypeSelect');
+      if (circleSelect) {
+        circleType = circleSelect.value;
+      }
       
-      var circleW = 1, circleH = 1, circleColorVal = '#f59e0b';
+      var circleW = 1, circleH = 1, circleColorVal = '#eab308';
       var circleCustomFields = document.getElementById('circleCustomFields');
       var circleWInput = document.getElementById('circleW');
       var circleHInput = document.getElementById('circleH');
@@ -189,7 +197,7 @@
           rot_y_add: circlePreset.rot_y_add || 0
         });
       }
-      var rectType = 'wood_pillar';
+      var rectType = 'disabled';
       var rectRadios = document.getElementsByName('rect_type');
       rectRadios.forEach(function(r) { if (r.checked) rectType = r.value; });
       

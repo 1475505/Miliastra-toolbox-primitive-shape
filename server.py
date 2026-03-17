@@ -81,34 +81,33 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
         <!-- 圆形选择 -->
         <div class="preset-bar">
           <span class="preset-label">圆形：</span>
-          <label class="radio-chip">
-            <input type="radio" name="circle_type" value="coin" checked>
-            <span>冒险币 1×1</span>
-          </label>
-          <label class="radio-chip">
-            <input type="radio" name="circle_type" value="geo_badge">
-            <span>岩元素徽章 0.3×0.3 <em class="load-hint">(低负载)</em></span>
-          </label>
-          <label class="radio-chip">
-            <input type="radio" name="circle_type" value="custom">
-            <span>自定义</span>
-          </label>
+          <select name="circle_type" id="circleTypeSelect" class="form-select" style="min-width: 150px; margin-right: 12px; margin-top: 4px; margin-bottom: 4px;">
+            <option value="coin">冒险币 1.0×1.0</option>
+            <option value="electro_badge">雷元素徽章 0.3×0.3</option>
+            <option value="pyro_badge">火元素徽章 0.3×0.3</option>
+            <option value="dendro_badge">草元素徽章 0.3×0.3</option>
+            <option value="cryo_badge">冰元素徽章 0.3×0.3</option>
+            <option value="geo_badge" selected>岩元素徽章 0.3×0.3 (默认低负载)</option>
+            <option value="hydro_badge">水元素徽章 0.3×0.3</option>
+            <option value="anemo_badge">风元素徽章 0.3×0.3</option>
+            <option value="custom">自定义</option>
+          </select>
         </div>
         <div id="circleCustomFields" class="custom-fields" hidden>
-          <input type="number" id="circleW" value="1" min="0.1" max="10" step="0.1" title="宽">
+          <input type="number" id="circleW" value="0.3" min="0.1" max="10" step="0.1" title="宽">
           <span class="prim-x">×</span>
-          <input type="number" id="circleH" value="1" min="0.1" max="10" step="0.1" title="高">
+          <input type="number" id="circleH" value="0.3" min="0.1" max="10" step="0.1" title="高">
         </div>
         <div class="color-picker-row">
           <span class="preset-label">圆形颜色：</span>
-          <input type="color" id="circleColor" value="#f59e0b">
+          <input type="color" id="circleColor" value="#eab308">
         </div>
         
         <!-- 矩形选择 -->
         <div class="preset-bar" style="margin-top:12px;">
           <span class="preset-label">矩形：</span>
           <label class="radio-chip">
-            <input type="radio" name="rect_type" value="wood_pillar" checked>
+            <input type="radio" name="rect_type" value="wood_pillar">
             <span>木质柱子 0.5×5</span>
           </label>
           <label class="radio-chip">
@@ -116,7 +115,7 @@ PAGE_UPLOAD = r'''<!DOCTYPE html>
             <span>自定义</span>
           </label>
           <label class="radio-chip radio-disable">
-            <input type="radio" name="rect_type" value="disabled">
+            <input type="radio" name="rect_type" value="disabled" checked>
             <span>禁用</span>
           </label>
         </div>
