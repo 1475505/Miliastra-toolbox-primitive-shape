@@ -1,14 +1,15 @@
-/* Shaper v8 — 结果页交互 (数据由服务端注入 window.RESULT) */
+/* Shaper v9 — 结果页交互 (数据由服务端注入 window.RESULT) */
 (() => {
 "use strict";
 const $ = id => document.getElementById(id);
 const data = window.RESULT;
 if (!data) return;
 const ps = data.config.primitive_size || 1;
+const mode = data.mode || 'fill';
 
 /* ── 状态 ── */
 const W = data.image_size.width, H = data.image_size.height;
-let baseImg = null, maskImg = null;
+let baseImg = null, maskImg = null, previewImg = null;
 let origin = { x: data.image_center.x, y: data.image_center.y };
 let scale = 1, hovered = null, selected = null;
 
@@ -25,9 +26,15 @@ if (data.image_base64) {
   onAsset();
 }
 if (data.mask_base64) {
-  expected = 2;
+  expected++;
   maskImg = new Image(); maskImg.onload = onAsset; maskImg.onerror = onAsset;
   maskImg.src = 'data:image/png;base64,' + data.mask_base64;
+}
+// 填充模式预览图
+if (mode === 'fill' && data.preview_base64) {
+  expected++;
+  previewImg = new Image(); previewImg.onload = onAsset; previewImg.onerror = onAsset;
+  previewImg.src = 'data:image/png;base64,' + data.preview_base64;
 }
 
 /* ── 初始化 UI ── */
@@ -35,6 +42,49 @@ function initUI() {
   // 原点
   $('originX').value = origin.x;
   $('originY').value = origin.y;
+
+  // 模式标签
+  var modeLabel = $('modeLabel');
+  if (modeLabel) {
+    modeLabel.textContent = mode === 'fill' ? '填充拟合' : '轮廓描边';
+  }
+
+  // 模式统计行
+  var statMode = $('statMode');
+  if (statMode) {
+    statMode.textContent = mode === 'fill' ? '填充拟合' : '轮廓描边';
+  }
+
+  // 模式切换：显示/隐藏重试区域
+  var retryFill = $('retrySectionFill');
+  var retryOutline = $('retrySectionOutline');
+  if (retryFill && retryOutline) {
+    if (mode === 'fill') {
+      retryFill.hidden = false;
+      retryOutline.hidden = true;
+    } else {
+      retryFill.hidden = true;
+      retryOutline.hidden = false;
+    }
+  }
+
+  // 填充模式预览对比
+  var previewCompare = $('previewCompare');
+  if (previewCompare) {
+    if (mode === 'fill' && data.preview_base64) {
+      previewCompare.hidden = false;
+      var previewImgEl = $('previewImg');
+      var originalThumb = $('originalThumb');
+      if (previewImgEl && data.preview_base64) {
+        previewImgEl.src = 'data:image/png;base64,' + data.preview_base64;
+      }
+      if (originalThumb && data.image_base64) {
+        originalThumb.src = 'data:image/png;base64,' + data.image_base64;
+      }
+    } else {
+      previewCompare.hidden = true;
+    }
+  }
 
   // 统计
   var nE = 0, nR = 0;

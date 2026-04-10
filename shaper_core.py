@@ -1,5 +1,8 @@
 """
 Shaper Core API — 核心逻辑与交互分离
+支持两种模式:
+  - outline (轮廓描边): 基于曲率路径行走的串珠式描边
+  - fill (填充拟合): 基于 Hill Climbing 的图元缩放填充
 """
 
 import cv2
@@ -9,6 +12,7 @@ import time
 import math
 from shapely.geometry import Polygon
 import final_shaper as fs
+import fill_shaper
 
 
 def process_image(image_bytes, config=None):
@@ -18,8 +22,178 @@ def process_image(image_bytes, config=None):
     Args:
         image_bytes: 原始图片文件字节
         config: dict, 可选键:
+            mode (str): 'outline' 或 'fill', 默认 'fill'
             primitive_size (float): 图元基准大小 (px), 默认 15
-                实际输出图元在 size*0.4 ~ size*2 之间自动缩放
+            spacing (float): 间距系数, 默认 0.9
+            precision (float): 精度 0.0-1.0, 默认 0.3
+            num_primitives (int): fill 模式图元数量, 默认 100
+            candidates (int): fill 模式每轮候选数, 默认 32
+            hill_climb_iter (int): fill 模式爬山迭代数, 默认 64
+
+    Returns:
+        dict 包含图元数据、base64 图片等
+    """
+    if config is None:
+        config = {}
+
+    mode = config.get('mode', 'fill')
+    if mode == 'fill':
+        return process_image_fill(image_bytes, config)
+    else:
+        return process_image_outline(image_bytes, config)
+
+
+def process_image_fill(image_bytes, config=None):
+    """
+    填充拟合模式：用圆形/矩形缩放拟合图片区域。
+
+    Args:
+        image_bytes: 原始图片文件字节
+        config: dict, 可选键:
+            primitive_size (float): 图元基准大小 (px), 默认 15
+            num_primitives (int): 图元数量, 默认 100
+            candidates (int): 每轮候选数, 默认 32
+            hill_climb_iter (int): 爬山迭代数, 默认 64
+            primitives (list): 图元配置列表
+            origin (dict): 原点配置
+
+    Returns:
+        dict 包含图元数据、base64 图片等
+    """
+    if config is None:
+        config = {}
+
+    t0 = time.time()
+
+    # 解码图片
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise ValueError("无法解码图片")
+
+    h, w = img.shape[:2]
+
+    # 原点处理
+    origin_cfg = config.get('origin', {})
+    if origin_cfg.get('type') == 'custom':
+        img_center = (
+            float(origin_cfg.get('x', w / 2.0)),
+            float(origin_cfg.get('y', h / 2.0))
+        )
+    elif origin_cfg.get('type') == 'top_left':
+        img_center = (0.0, 0.0)
+    else:
+        img_center = (w / 2.0, h / 2.0)
+
+    # 图元大小配置
+    prim_size = max(3, min(200, config.get('primitive_size', 15)))
+
+    # 允许的图元类型
+    allowed_types = None
+    type_colors = {}
+    if 'primitives' in config and config['primitives']:
+        at_set = set()
+        for p in config['primitives']:
+            s = p.get('shape')
+            c = p.get('color')
+            if s == 'circle':
+                at_set.add(fill_shaper.ShapeType.CIRCLE)
+                if c:
+                    type_colors[fill_shaper.ShapeType.CIRCLE] = c
+            elif s == 'rect':
+                at_set.add(fill_shaper.ShapeType.RECT)
+                if c:
+                    type_colors[fill_shaper.ShapeType.RECT] = c
+        if at_set:
+            allowed_types = list(at_set)
+        else:
+            allowed_types = [fill_shaper.ShapeType.CIRCLE]
+
+    # 填充配置
+    fill_cfg = fill_shaper.FillConfig(
+        num_primitives=int(config.get('num_primitives', 100)),
+        candidates=int(config.get('candidates', 32)),
+        hill_climb_iter=int(config.get('hill_climb_iter', 64)),
+        min_size=max(2, prim_size * 0.3),
+        max_size=max(4, prim_size * 3),
+        allowed_types=allowed_types,
+    )
+
+    # 准备图片
+    if len(img.shape) == 2:
+        work_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif img.shape[2] == 4:
+        work_img = img.copy()
+    else:
+        work_img = img.copy()
+
+    # 运行填充拟合
+    results = fill_shaper.fit_primitives(work_img, fill_cfg)
+
+    # 分配颜色覆盖
+    for r in results:
+        t = r.get('type')
+        if t in type_colors:
+            hex_color = type_colors[t].lstrip('#')
+            r['color'] = [int(hex_color[i:i+2], 16) for i in (0, 2, 4)]
+
+    # 转换为兼容元素格式
+    primitives = config.get('primitives', [])
+    elements = fill_shaper.results_to_elements(
+        results, prim_size, img_center, primitives)
+
+    # 渲染预览图
+    preview = fill_shaper.render_results(work_img, results)
+
+    elapsed = time.time() - t0
+
+    # 编码图片
+    if len(img.shape) == 2:
+        img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif img.shape[2] == 4:
+        img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    else:
+        img_bgr = img
+    _, buf = cv2.imencode('.png', img_bgr)
+    img_b64 = base64.b64encode(buf).decode('utf-8')
+
+    # 编码预览图
+    _, pbuf = cv2.imencode('.png', preview)
+    preview_b64 = base64.b64encode(pbuf).decode('utf-8')
+
+    # 编码 mask (fill 模式用全白 mask)
+    mask = np.ones((h, w), dtype=np.uint8) * 255
+    _, mbuf = cv2.imencode('.png', mask)
+    mask_b64 = base64.b64encode(mbuf).decode('utf-8')
+
+    return {
+        'mode': 'fill',
+        'image_center': {'x': img_center[0], 'y': img_center[1]},
+        'image_size': {'width': w, 'height': h},
+        'config': {
+            'mode': 'fill',
+            'primitive_size': prim_size,
+            'num_primitives': fill_cfg.num_primitives,
+            'candidates': fill_cfg.candidates,
+            'hill_climb_iter': fill_cfg.hill_climb_iter,
+        },
+        'elements_count': len(elements),
+        'elements': elements,
+        'image_base64': img_b64,
+        'preview_base64': preview_b64,
+        'mask_base64': mask_b64,
+        'elapsed_seconds': round(elapsed, 2),
+    }
+
+
+def process_image_outline(image_bytes, config=None):
+    """
+    轮廓描边模式（原有逻辑）
+
+    Args:
+        image_bytes: 原始图片文件字节
+        config: dict, 可选键:
+            primitive_size (float): 图元基准大小 (px), 默认 15
             spacing (float): 间距系数, 默认 0.9
             precision (float): 精度 0.0-1.0, 默认 0.3
 
@@ -180,9 +354,11 @@ def process_image(image_bytes, config=None):
         elements.append(item)
 
     return {
+        'mode': 'outline',
         'image_center': {'x': img_center[0], 'y': img_center[1]},
         'image_size': {'width': w, 'height': h},
         'config': {
+            'mode': 'outline',
             'primitive_size': prim_size,
             'spacing': cfg.spacing_ratio,
             'precision': cfg.precision,

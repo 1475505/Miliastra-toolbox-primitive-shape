@@ -10,6 +10,13 @@
   var btnSubmit = document.getElementById('btnSubmit');
   var mainForm = document.getElementById('mainForm');
   var primJson = document.getElementById('primJson');
+  var modeInput = document.getElementById('modeInput');
+
+  // Mode switch elements
+  var fillParams = document.getElementById('fillParams');
+  var outlineParams = document.getElementById('outlineParams');
+  var modeFill = document.getElementById('modeFill');
+  var modeOutline = document.getElementById('modeOutline');
 
   // 预设配置
   var PRESETS = {
@@ -31,11 +38,29 @@
     }
   };
 
-  // File Handling Logic
+  // ── Mode Switch ──
+  var modeRadios = document.querySelectorAll('input[name="mode_radio"]');
+  modeRadios.forEach(function(radio) {
+    radio.addEventListener('change', function() {
+      var mode = this.value;
+      modeInput.value = mode;
+      if (mode === 'fill') {
+        fillParams.hidden = false;
+        outlineParams.hidden = true;
+        modeFill.classList.add('active');
+        modeOutline.classList.remove('active');
+      } else {
+        fillParams.hidden = true;
+        outlineParams.hidden = false;
+        modeFill.classList.remove('active');
+        modeOutline.classList.add('active');
+      }
+    });
+  });
+
+  // ── File Handling ──
   function handleFile(file) {
     if (!file || !file.type.startsWith('image/')) return;
-    
-    // Update fileInput files for form submission
     var dt = new DataTransfer();
     dt.items.add(file);
     fileInput.files = dt.files;
@@ -52,7 +77,6 @@
     btnSubmit.innerHTML = '开始处理 &rarr;';
   }
 
-  // File Input Handling
   if (dropZone && fileInput) {
     dropZone.onclick = function() { fileInput.click(); };
 
@@ -60,7 +84,6 @@
       if (this.files[0]) handleFile(this.files[0]);
     };
 
-    // Drag & Drop
     dropZone.addEventListener('dragover', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -82,7 +105,6 @@
       }
     });
 
-    // Paste
     document.addEventListener('paste', function(e) {
       var items = (e.clipboardData || e.originalEvent.clipboardData).items;
       for (var i = 0; i < items.length; i++) {
@@ -95,144 +117,130 @@
     });
   }
 
-  // 互斥选择逻辑
-  function setupRadioToggle(circleSelectId, rectSelectId) {
-    // 圆形选择
-    var circleSelect = document.getElementById(circleSelectId);
-    var circleCustomFields = document.getElementById('circleCustomFields');
-    var circleColor = document.getElementById('circleColor');
-    
-    if (circleSelect) {
-      circleSelect.addEventListener('change', function() {
-        if (circleCustomFields) {
-          circleCustomFields.hidden = (this.value !== 'custom');
-        }
-        // 当选择预设时，更新颜色
-        if (this.value !== 'custom' && circleColor) {
-          var preset = PRESETS.circle[this.value];
-          if (preset && preset.color) {
-            circleColor.value = preset.color;
-          }
-        }
-      });
-    }
-
-    // 矩形选择
-    var rectSelect = document.getElementById(rectSelectId);
-    var rectCustomFields = document.getElementById('rectCustomFields');
-    var rectColor = document.getElementById('rectColor');
-    
-    if (rectSelect) {
-      rectSelect.addEventListener('change', function() {
-        if (rectCustomFields) {
-          rectCustomFields.hidden = (this.value !== 'custom');
-        }
-        // 当选择预设时，更新颜色
-        if (this.value !== 'custom' && rectColor) {
-          var preset = PRESETS.rect[this.value];
-          if (preset && preset.color) {
-            rectColor.value = preset.color;
-          }
-        }
-      });
-    }
+  // ── Preset select + custom fields + color ──
+  function setupPresetSelect(selectId, customFieldsId, colorId, presetGroup) {
+    var sel = document.getElementById(selectId);
+    var custom = document.getElementById(customFieldsId);
+    var color = document.getElementById(colorId);
+    if (!sel) return;
+    sel.addEventListener('change', function() {
+      if (custom) custom.hidden = (this.value !== 'custom');
+      if (this.value !== 'custom' && color && PRESETS[presetGroup]) {
+        var p = PRESETS[presetGroup][this.value];
+        if (p && p.color) color.value = p.color;
+      }
+    });
   }
 
-  setupRadioToggle('circleTypeSelect', 'rectTypeSelect');
+  // Fill mode presets
+  setupPresetSelect('circleTypeSelect', 'circleCustomFields', 'circleColor', 'circle');
+  setupPresetSelect('rectTypeSelect', 'rectCustomFields', 'rectColor', 'rect');
+  // Outline mode presets
+  setupPresetSelect('olCircleTypeSelect', 'olCircleCustomFields', 'olCircleColor', 'circle');
+  setupPresetSelect('olRectTypeSelect', 'olRectCustomFields', 'olRectColor', 'rect');
 
-  // Sliders
-  ['primSize', 'precision', 'spacing'].forEach(function(id) {
+  // ── Sliders ──
+  // Fill mode sliders
+  ['numPrims', 'primSize'].forEach(function(id) {
+    var el = document.getElementById(id), tag = document.getElementById(id + 'Val');
+    if (el && tag) el.oninput = function() { tag.textContent = el.value; };
+  });
+  // Outline mode sliders
+  ['olPrimSize', 'olPrecision', 'olSpacing'].forEach(function(id) {
     var el = document.getElementById(id), tag = document.getElementById(id + 'Val');
     if (el && tag) el.oninput = function() { tag.textContent = el.value; };
   });
 
-  // Origin Type Toggle
-  var originType = document.getElementById('originType');
-  var customOrigin = document.getElementById('customOrigin');
-  if (originType && customOrigin) {
-    originType.onchange = function() {
-        customOrigin.hidden = (this.value !== 'custom');
-    };
+  // ── Origin Type Toggle ──
+  function setupOriginToggle(typeId, customId) {
+    var typeEl = document.getElementById(typeId);
+    var customEl = document.getElementById(customId);
+    if (typeEl && customEl) {
+      typeEl.onchange = function() { customEl.hidden = (this.value !== 'custom'); };
+    }
   }
+  setupOriginToggle('originType', 'customOrigin');
+  setupOriginToggle('olOriginType', 'olCustomOrigin');
 
-  // Submit
-  if (mainForm) {
-    mainForm.onsubmit = function() {
-      // 获取圆形设置
-      var circleType = 'geo_badge'; // default
-      var circleSelect = document.getElementById('circleTypeSelect');
-      if (circleSelect) {
-        circleType = circleSelect.value;
-      }
-      
-      var circleW = 1, circleH = 1, circleColorVal = '#eab308';
-      var circleCustomFields = document.getElementById('circleCustomFields');
-      var circleWInput = document.getElementById('circleW');
-      var circleHInput = document.getElementById('circleH');
-      var circleColorInput = document.getElementById('circleColor');
-      
-      if (circleType === 'custom' && circleCustomFields && !circleCustomFields.hidden) {
-        circleW = parseFloat(circleWInput && circleWInput.value) || 1;
-        circleH = parseFloat(circleHInput && circleHInput.value) || 1;
-      } else if (circleType !== 'disabled') {
-        var preset = PRESETS.circle[circleType];
-        circleW = preset.w;
-        circleH = preset.h;
-      }
-      circleColorVal = circleColorInput ? circleColorInput.value : '#f59e0b';
+  // ── Build primitives from selects ──
+  function buildPrimitives(circleSelectId, rectSelectId, circleCustomId, rectCustomId, circleColorId, rectColorId) {
+    var circleSelect = document.getElementById(circleSelectId);
+    var rectSelect = document.getElementById(rectSelectId);
+    var circleCustomFields = document.getElementById(circleCustomId);
+    var rectCustomFields = document.getElementById(rectCustomId);
+    var circleColorInput = document.getElementById(circleColorId);
+    var rectColorInput = document.getElementById(rectColorId);
 
-      var rectType = 'disabled';
-      var rectSelect = document.getElementById('rectTypeSelect');
-      if (rectSelect) {
-        rectType = rectSelect.value;
-      } else {
-        var rectRadios = document.getElementsByName('rect_type');
-        rectRadios.forEach(function(r) { if (r.checked) rectType = r.value; });
-      }
-      
-      var rectW = 0.5, rectH = 5, rectColorVal = '#38bdf8';
-      var rectCustomFields = document.getElementById('rectCustomFields');
-      var rectWInput = document.getElementById('rectW');
-      var rectHInput = document.getElementById('rectH');
-      var rectColorInput = document.getElementById('rectColor');
-      
+    var circleType = circleSelect ? circleSelect.value : 'geo_badge';
+    var circleW = 0.3, circleH = 0.3, circleColorVal = '#eab308';
+
+    if (circleType === 'custom' && circleCustomFields && !circleCustomFields.hidden) {
+      var cwInput = document.getElementById('circleW');
+      var chInput = document.getElementById('circleH');
+      circleW = parseFloat(cwInput && cwInput.value) || 1;
+      circleH = parseFloat(chInput && chInput.value) || 1;
+    } else {
+      var cp = PRESETS.circle[circleType];
+      circleW = cp.w;
+      circleH = cp.h;
+    }
+    circleColorVal = circleColorInput ? circleColorInput.value : '#eab308';
+
+    var rectType = rectSelect ? rectSelect.value : 'disabled';
+    var rectW = 0.5, rectH = 5, rectColorVal = '#38bdf8';
+
+    if (rectType !== 'disabled') {
       if (rectType === 'custom' && rectCustomFields && !rectCustomFields.hidden) {
-        rectW = parseFloat(rectWInput && rectWInput.value) || 0.5;
-        rectH = parseFloat(rectHInput && rectHInput.value) || 5;
-      } else if (rectType !== 'disabled') {
-        var preset = PRESETS.rect[rectType];
-        rectW = preset.w;
-        rectH = preset.h;
+        var rwInput = document.getElementById('rectW');
+        var rhInput = document.getElementById('rectH');
+        rectW = parseFloat(rwInput && rwInput.value) || 0.5;
+        rectH = parseFloat(rhInput && rhInput.value) || 5;
+      } else {
+        var rp = PRESETS.rect[rectType];
+        rectW = rp.w;
+        rectH = rp.h;
       }
       rectColorVal = rectColorInput ? rectColorInput.value : '#38bdf8';
+    }
 
-      // 构建primitives数据
-      var primitives = [];
-      
-      // 添加圆形
-      var circlePreset = PRESETS.circle[circleType];
+    var primitives = [];
+    var circlePreset = PRESETS.circle[circleType];
+    primitives.push({
+      shape: 'circle',
+      preset_type: circleType,
+      w: circleW,
+      h: circleH,
+      color: circleColorVal,
+      type_id: circlePreset.type_id,
+      rot_z: circlePreset.rot_z || 0,
+      rot_y_add: circlePreset.rot_y_add || 0
+    });
+
+    if (rectType !== 'disabled') {
+      var rectPreset = PRESETS.rect[rectType];
       primitives.push({
-        shape: 'circle',
-        preset_type: circleType,
-        w: circleW,
-        h: circleH,
-        color: circleColorVal,
-        type_id: circlePreset.type_id,
-        rot_z: circlePreset.rot_z || 0,
-        rot_y_add: circlePreset.rot_y_add || 0
+        shape: 'rect',
+        preset_type: rectType,
+        w: rectW,
+        h: rectH,
+        color: rectColorVal,
+        type_id: rectPreset.type_id
       });
-      
-      // 添加矩形（仅在未禁用时）
-      if (rectType !== 'disabled') {
-        var rectPreset = PRESETS.rect[rectType];
-        primitives.push({
-          shape: 'rect',
-          preset_type: rectType,
-          w: rectW,
-          h: rectH,
-          color: rectColorVal,
-          type_id: rectPreset.type_id
-        });
+    }
+
+    return primitives;
+  }
+
+  // ── Submit ──
+  if (mainForm) {
+    mainForm.onsubmit = function() {
+      var mode = modeInput ? modeInput.value : 'fill';
+
+      var primitives;
+      if (mode === 'fill') {
+        primitives = buildPrimitives('circleTypeSelect', 'rectTypeSelect', 'circleCustomFields', 'rectCustomFields', 'circleColor', 'rectColor');
+      } else {
+        primitives = buildPrimitives('olCircleTypeSelect', 'olRectTypeSelect', 'olCircleCustomFields', 'olRectCustomFields', 'olCircleColor', 'olRectColor');
       }
 
       if (primJson) primJson.value = JSON.stringify(primitives);

@@ -799,6 +799,121 @@ input[type="range"]::-webkit-slider-thumb:hover {
   margin-left: 4px;
 }
 
+/* Mode Switch */
+.mode-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.mode-option::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--primary-gradient);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.mode-option:hover {
+  border-color: var(--border-active);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.mode-option.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  box-shadow: var(--shadow-glow);
+}
+
+.mode-option.active::before {
+  opacity: 0.04;
+}
+
+.mode-option input[type="radio"] {
+  display: none;
+}
+
+.mode-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 1;
+}
+
+.mode-text strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.mode-text small {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.mode-option.active .mode-text strong {
+  color: var(--primary);
+}
+
+/* Preview Compare */
+.preview-compare {
+  display: flex;
+  gap: 12px;
+  padding: 12px 24px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.preview-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.preview-thumb {
+  max-height: 120px;
+  max-width: 200px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-subtle);
+  object-fit: contain;
+  background: #fff;
+}
+
 .radio-disable {
   opacity: 0.7;
 }
