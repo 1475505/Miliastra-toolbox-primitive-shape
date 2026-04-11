@@ -37,6 +37,14 @@ def cleanup():
         del tasks[key]
 
 
+def _derive_upload_image_name(filename):
+    if not filename:
+        return ""
+    base_name = os.path.basename(str(filename).strip())
+    stem, _ = os.path.splitext(base_name)
+    return stem.strip()
+
+
 PAGE_UPLOAD = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -76,7 +84,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
             <span id="fname" class="file-name"></span>
             <div id="uploadReady" class="upload-ready" hidden>已选择图片</div>
           </div>
-          <p class="hint">支持 PNG / JPG / WEBP。带透明通道时会优先使用 alpha 作为遮罩。</p>
+          <p class="hint">支持 PNG / JPG / WEBP。仅在开启 PNG 模式时才会直接使用透明通道；否则会先铺白底，再生成遮罩。</p>
         </section>
 
         <!-- 图元 / 装饰物配置 -->
@@ -158,7 +166,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span class="param-title">PNG 模式</span>
                 <span class="val-tag">可选</span>
               </div>
-              <p class="param-desc">默认关闭。仅对带透明通道的 PNG 生效；开启后不使用遮罩，并让背景图元透明度为 0。开发中</p>
+              <p class="param-desc">默认关闭。仅对带透明通道的 PNG 生效；开启后直接按透明通道拟合并保留透明背景，关闭时会改为白底加遮罩流程。</p>
               <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-main);cursor:pointer;">
                 <input type="checkbox" name="enable_png_mode" id="enablePngMode">
                 <span>启用 PNG 模式</span>
@@ -415,9 +423,11 @@ def submit():
     cleanup()
     if "image" not in request.files:
         return "缺少图片", 400
-    blob = request.files["image"].read()
+    upload = request.files["image"]
+    blob = upload.read()
     if not blob:
         return "图片为空", 400
+    image_name = _derive_upload_image_name(upload.filename)
 
     mode = request.form.get("mode", "fill")
     cfg = {
@@ -478,6 +488,7 @@ def submit():
         "status": "processing",
         "ts": time.time(),
         "image_bytes": blob,
+        "image_name": image_name,
         "config": cfg,
     }
 
@@ -528,6 +539,7 @@ def retry(tid):
         "status": "processing",
         "ts": time.time(),
         "image_bytes": old_task["image_bytes"],
+        "image_name": old_task.get("image_name", ""),
         "config": cfg,
     }
 
@@ -673,6 +685,7 @@ def download_overlimit_gia(tid):
     json_data = {
         "elements": elements,
         "mask": mask_cfg,
+        "group_name": task.get("image_name", ""),
     }
 
     mod = _load_json_to_gia()

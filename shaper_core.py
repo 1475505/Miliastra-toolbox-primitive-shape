@@ -75,6 +75,22 @@ def _prepare_browser_image(image, preserve_alpha):
     return _flatten_to_bgr(image)
 
 
+def _extract_fill_image_and_mask(image, mask_threshold):
+    if image.ndim == 2:
+        image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        mask = fs.extract_mask(image_bgr) > 0
+    elif image.shape[2] == 4:
+        alpha = image[:, :, 3].astype(np.float64) / 255.0
+        image_bgr = image[:, :, :3].astype(np.float64)
+        image_bgr = image_bgr * alpha[:, :, None] + 255.0 * (1.0 - alpha[:, :, None])
+        image_bgr = np.clip(np.rint(image_bgr), 0, 255).astype(np.uint8)
+        mask = image[:, :, 3] >= int(mask_threshold)
+    else:
+        image_bgr = image[:, :, :3].copy()
+        mask = fs.extract_mask(image_bgr) > 0
+    return image_bgr, mask
+
+
 def _mask_bbox(mask):
     ys, xs = np.where(mask)
     if ys.size == 0:
@@ -124,7 +140,7 @@ def process_image_fill(image_bytes, config=None):
     allowed_types = _fill_allowed_types(config)
     enable_png_mode = bool(config.get("enable_png_mode", False))
     has_transparent_alpha = _has_transparent_alpha(image)
-    flattened_image = _flatten_to_bgr(image)
+    mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
     transparent_output = has_transparent_alpha and enable_png_mode
 
     if transparent_output:
@@ -137,13 +153,10 @@ def process_image_fill(image_bytes, config=None):
         min_mask_coverage = 0.12
         preview_alpha_map = coverage_weights
         browser_image = _prepare_browser_image(image, preserve_alpha=True)
+        fit_image = image
     else:
         fit_variant = "mask"
-        if image.ndim == 3 and image.shape[2] == 4:
-            mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
-            mask = image[:, :, 3] >= mask_threshold
-        else:
-            mask = fs.extract_mask(flattened_image) > 0
+        fit_image, mask = _extract_fill_image_and_mask(image, mask_threshold)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         cleaned = cv2.morphologyEx(mask.astype(np.uint8) * 255, cv2.MORPH_CLOSE, kernel)
         cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
@@ -154,7 +167,7 @@ def process_image_fill(image_bytes, config=None):
         coverage_for_bbox = mask
         min_mask_coverage = 0.55
         preview_alpha_map = np.ones_like(coverage_weights, dtype=np.float64)
-        browser_image = flattened_image
+        browser_image = fit_image
 
     num_primitives = int(config.get("num_primitives", 400))
     active_area = float(np.sum(coverage_weights))
@@ -171,14 +184,14 @@ def process_image_fill(image_bytes, config=None):
     }
 
     results = fill_shaper.fit_primitives(
-        image,
+        fit_image,
         config=fit_config,
         mask=mask,
         coverage_weights=coverage_weights,
         output_alpha_weights=output_alpha_weights,
     )
     preview = fill_shaper.render_results(
-        image,
+        fit_image,
         results,
         mask=mask,
         coverage_weights=coverage_weights,
@@ -213,7 +226,7 @@ def process_image_fill(image_bytes, config=None):
             "pixel_per_unit": round(1.0 / unit_scale, 6),
             "unit_scale": unit_scale,
             "num_primitives": num_primitives,
-            "mask_threshold": int(max(1, min(254, config.get("mask_threshold", 127)))),
+            "mask_threshold": mask_threshold,
             "image_scale": unit_scale,
             "allowed_shapes": config.get("allowed_shapes", ["circle"]),
         },

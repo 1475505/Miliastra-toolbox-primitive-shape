@@ -1,6 +1,5 @@
 __pycache__
 *.pyc
-!gia/json_to_gia.pyc
 *.pyo
 *.pyd
 .Python
@@ -11,16 +10,26 @@ venv/
 .git
 .gitignore
 .dockerignore
-Dockerfile
+.qoder
+.vscode
+
+# Documentation (not needed in image)
 README.md
 LICENSE
 tech.md
 user_guide.md
+dev.md
+
+# Demo files
 demo/
-tools/
-build/
-win/
-!win/requirements.txt
-deepseek.jpeg
-mihoyo.png
-gia/json_to_gia.py
+
+# Windows desktop build (only need requirements.txt)
+win/build/
+win/dist/
+win/app_desktop.py
+win/shaper.spec
+win/build_windows.bat
+
+# Build artifacts (will be rebuilt in Docker)
+dist/
+*.spec
