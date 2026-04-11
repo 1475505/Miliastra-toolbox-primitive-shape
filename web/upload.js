@@ -5,17 +5,38 @@
 
   const PRESETS = {
     circle: [
-      { key: "coin", label: "冒险币", hint: "默认圆形装饰物", name: "冒险币", type_id: 10005009 },
-      { key: "geo_badge", label: "岩元素徽章", hint: "低负载常用预设", name: "岩元素徽章", type_id: 20001285, rot_z: 90, rot_y_add: 90 },
-      { key: "electro_badge", label: "雷元素徽章", hint: "低负载常用预设", name: "雷元素徽章", type_id: 20001281, rot_z: 90, rot_y_add: 90 },
-      { key: "anemo_badge", label: "风元素徽章", hint: "低负载常用预设", name: "风元素徽章", type_id: 20001287, rot_z: 90, rot_y_add: 90 },
+      { key: "coin", label: "冒险币", hint: "默认圆形装饰物", name: "冒险币", type_id: 10005009, size: 1.0 },
+      { key: "electro_badge", label: "雷元素徽章", hint: "低负载常用预设", name: "雷元素徽章", type_id: 20001281, size: 0.3, rot_z: 90, rot_y_add: 90 },
+      { key: "pyro_badge", label: "火元素徽章", hint: "低负载常用预设", name: "火元素徽章", type_id: 20001282, size: 0.3, rot_z: 90, rot_y_add: 90 },
+      { key: "dendro_badge", label: "草元素徽章", hint: "低负载常用预设", name: "草元素徽章", type_id: 20001283, size: 0.3, rot_z: 90, rot_y_add: 90 },
+      { key: "cryo_badge", label: "冰元素徽章", hint: "低负载常用预设", name: "冰元素徽章", type_id: 20001284, size: 0.3, rot_z: 90, rot_y_add: 90 },
+      { key: "geo_badge", label: "岩元素徽章", hint: "低负载常用预设", name: "岩元素徽章", type_id: 20001285, size: 0.3, rot_z: 90, rot_y_add: 90 },
+      { key: "hydro_badge", label: "水元素徽章", hint: "低负载常用预设", name: "水元素徽章", type_id: 20001286, size: 0.3, rot_z: 90, rot_y_add: 90 },
+      { key: "anemo_badge", label: "风元素徽章", hint: "低负载常用预设", name: "风元素徽章", type_id: 20001287, size: 0.3, rot_z: 90, rot_y_add: 90 },
       { key: "custom", label: "自定义", hint: "手动填写参数", name: "自定义圆形" },
     ],
     rect: [
-      { key: "wood_box", label: "木质箱子", hint: "常用矩形元件", name: "木质箱子", type_id: 20001224 },
-      { key: "geo_cube", label: "岩元素立方体", hint: "体块感更强", name: "岩元素立方体", type_id: 20001034 },
-      { key: "stone_wall", label: "石质墙体(黄)", hint: "适合描边堆叠", name: "石质墙体(黄)", type_id: 20001869 },
-      { key: "green_platform", label: "积木平台(绿)", hint: "大尺寸矩形平台", name: "积木平台(绿)", type_id: 10005014 },
+      { key: "wood_box", label: "木质箱子", hint: "常用矩形元件", name: "木质箱子", type_id: 20001224, size: 1.0 },
+      { key: "geo_cube", label: "石质元素立方体", hint: "体块感更强", name: "石质元素立方体", type_id: 20001034, size: 5.0 },
+      { key: "wood_box_green", label: "木质箱子（绿）", hint: "彩色箱体预设", name: "木质箱子（绿）", type_id: 20001237, size: 1.5 },
+      { key: "wood_box_blue", label: "木质箱子（蓝）", hint: "彩色箱体预设", name: "木质箱子（蓝）", type_id: 20001238, size: 1.5 },
+      { key: "wood_box_purple", label: "木质箱子（紫）", hint: "彩色箱体预设", name: "木质箱子（紫）", type_id: 20001239, size: 1.5 },
+      { key: "stone_wall_yellow", label: "石质墙体（黄）", hint: "适合描边堆叠", name: "石质墙体（黄）", type_id: 20001869, size: 3.0 },
+      { key: "stone_wall_red", label: "石质墙体（红）", hint: "适合描边堆叠", name: "石质墙体（红）", type_id: 20001870, size: 3.0 },
+      { key: "stone_wall_gray", label: "石质墙体（灰）", hint: "适合描边堆叠", name: "石质墙体（灰）", type_id: 20001872, size: 3.0 },
+      { key: "water_cube", label: "水质立方体", hint: "常用立方体预设", name: "水质立方体", type_id: 20001874, size: 1.0 },
+      { key: "cream_cube", label: "通常立方体（奶黄）", hint: "常用立方体预设", name: "通常立方体（奶黄）", type_id: 20001875, size: 1.0 },
+      { key: "solid_cube_dark_blue", label: "坚固立方体（暗蓝）", hint: "常用立方体预设", name: "坚固立方体（暗蓝）", type_id: 20001876, size: 1.0 },
+      { key: "ice_cube", label: "冰质立方体", hint: "常用立方体预设", name: "冰质立方体", type_id: 20001877, size: 1.0 },
+      { key: "fire_cube", label: "火质立方体", hint: "常用立方体预设", name: "火质立方体", type_id: 20001878, size: 1.0 },
+      { key: "electro_cube", label: "雷质立方体", hint: "常用立方体预设", name: "雷质立方体", type_id: 20001879, size: 1.0 },
+      { key: "wood_low_cabinet", label: "矩形木质矮柜", hint: "细长矩形元件", name: "矩形木质矮柜", type_id: 20001082, size: 1.0 },
+      { key: "block_cube_wood", label: "积木立方体（木色）", hint: "大尺寸积木元件", name: "积木立方体（木色）", type_id: 20001096, size: 6.0 },
+      { key: "block_cube_dark", label: "积木立方体（深色）", hint: "大尺寸积木元件", name: "积木立方体（深色）", type_id: 20001097, size: 6.0 },
+      { key: "block_cube_light", label: "积木立方体（浅色）", hint: "大尺寸积木元件", name: "积木立方体（浅色）", type_id: 20001100, size: 6.0 },
+      { key: "stone_ceiling_white", label: "石质天花板（白）", hint: "大尺寸矩形平台", name: "石质天花板（白）", type_id: 20002146, size: 5.0 },
+      { key: "wood_ceiling_black", label: "木质天花板（黑）", hint: "大尺寸矩形平台", name: "木质天花板（黑）", type_id: 20002121, size: 5.0 },
+      { key: "green_platform", label: "积木平台（绿）", hint: "大尺寸矩形平台", name: "积木平台（绿）", type_id: 10005014, size: 5.0 },
       { key: "custom", label: "自定义", hint: "手动填写参数", name: "自定义矩形" },
     ],
   };
@@ -108,8 +129,17 @@
     const preset = getPreset(shape, presetKey);
     const meta = card.querySelector(".primitive-meta");
     if (!meta) return;
-    meta.textContent = preset && preset.hint
-      ? `${preset.hint}。可以继续微调类型 ID、资源 ID 和旋转。`
+    if (!preset) {
+      meta.textContent = "当前参数将写入装饰物导出结果。";
+      return;
+    }
+
+    const parts = [];
+    if (preset.hint) parts.push(preset.hint);
+    if (preset.type_id !== undefined) parts.push(`ID: ${preset.type_id}`);
+    if (preset.size !== undefined) parts.push(`大小: ${preset.size}`);
+    meta.textContent = parts.length > 0
+      ? `${parts.join(" · ")}。可以继续微调类型 ID、资源 ID 和旋转。`
       : "当前参数将写入装饰物导出结果。";
   }
 
