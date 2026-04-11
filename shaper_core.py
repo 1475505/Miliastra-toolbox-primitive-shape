@@ -17,6 +17,7 @@ from shapely.geometry import Polygon
 
 import fill_shaper
 import final_shaper as fs
+import primitive_backend
 
 
 def _encode_png_base64(image):
@@ -145,7 +146,6 @@ def process_image_fill(image_bytes, config=None):
     image_center = _resolve_origin(config, width, height)
     unit_scale = float(max(0.1, config.get("image_scale", 1.0)))
     output_alpha = float(config.get("output_alpha", 1.0))
-    allowed_types = _fill_allowed_types(config)
     enable_png_mode = bool(config.get("enable_png_mode", False))
     source_is_png = _source_is_png(config)
     has_transparent_alpha = _has_transparent_alpha(image)
@@ -156,58 +156,32 @@ def process_image_fill(image_bytes, config=None):
 
     if transparent_output:
         fit_variant = "png"
-        coverage_weights = image[:, :, 3].astype(np.float64) / 255.0
-        mask = None
         mask_enabled = False
-        output_alpha_weights = coverage_weights
-        coverage_for_bbox = coverage_weights > 1e-6
-        min_mask_coverage = 0.12
-        preview_alpha_map = coverage_weights
+        coverage_for_bbox = image[:, :, 3] > 0
         browser_image = _prepare_browser_image(image, preserve_alpha=True)
-        fit_image = image
     else:
         fit_variant = "mask"
+        mask_enabled = True
         fit_image, mask = _extract_fill_image_and_mask(image, mask_threshold)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         cleaned = cv2.morphologyEx(mask.astype(np.uint8) * 255, cv2.MORPH_CLOSE, kernel)
         cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
-        mask = cleaned > 0
-        coverage_weights = mask.astype(np.float64)
-        mask_enabled = True
-        output_alpha_weights = None
-        coverage_for_bbox = mask
-        min_mask_coverage = 0.55
-        preview_alpha_map = np.ones_like(coverage_weights, dtype=np.float64)
+        coverage_for_bbox = cleaned > 0
         browser_image = fit_image
 
     num_primitives = int(config.get("num_primitives", 400))
-    active_area = float(np.sum(coverage_weights))
-    approx_size = math.sqrt(max(active_area, 1.0) / max(num_primitives, 1))
-    fit_config = {
-        "num_primitives": num_primitives,
-        "allowed_types": allowed_types,
-        "candidates": 24,
-        "hill_climb_iter": 48,
-        "min_size": max(2.0, approx_size * 0.28),
-        "max_size": max(12.0, approx_size * 2.6),
-        "min_mask_coverage": min_mask_coverage,
-        "spill_penalty": 10000.0,
-    }
-
-    results = fill_shaper.fit_primitives(
-        fit_image,
-        config=fit_config,
-        mask=mask,
-        coverage_weights=coverage_weights,
-        output_alpha_weights=output_alpha_weights,
+    primitive_result = primitive_backend.fit_image_with_primitive(
+        image,
+        config={
+            "num_primitives": num_primitives,
+            "allowed_shapes": config.get("allowed_shapes", ["circle"]),
+            "mask_threshold": mask_threshold,
+            "detail_scale": float(config.get("detail_scale", 1.0)),
+            "transparent_output": transparent_output,
+        },
     )
-    preview = fill_shaper.render_results(
-        fit_image,
-        results,
-        mask=mask,
-        coverage_weights=coverage_weights,
-        output_alpha_map=preview_alpha_map,
-    )
+    results = primitive_result["results"]
+    preview = primitive_result["preview"]
 
     elements = fill_shaper.results_to_elements(
         results,
@@ -260,7 +234,7 @@ def process_image_fill(image_bytes, config=None):
         "image_size": {"width": width, "height": height},
         "config": {
             "mode": "fill",
-            "engine": "fill-shaper",
+            "engine": "primitive",
             "fill_variant": fit_variant,
             "enable_png_mode": enable_png_mode,
             "source_is_png": source_is_png,

@@ -130,21 +130,21 @@ def _clean_mask(mask):
     return np.ones_like(mask, dtype=bool)
 
 
-def _extract_image_and_mask(image, mask_threshold):
-    display_rgba = _ensure_bgra(image)
+def _extract_image_and_mask(image, mask_threshold, use_alpha_target=False):
     if image.ndim == 2:
-        image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        mask = fs.extract_mask(image_bgr) > 0
+        target_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        mask = fs.extract_mask(target_image) > 0
     elif image.shape[2] == 4:
         alpha = image[:, :, 3].astype(np.float32) / 255.0
-        image_bgr = image[:, :, :3].astype(np.float32)
-        image_bgr = image_bgr * alpha[:, :, None] + 255.0 * (1.0 - alpha[:, :, None])
-        image_bgr = np.clip(image_bgr, 0, 255).astype(np.uint8)
+        flattened = image[:, :, :3].astype(np.float32)
+        flattened = flattened * alpha[:, :, None] + 255.0 * (1.0 - alpha[:, :, None])
+        flattened = np.clip(np.rint(flattened), 0, 255).astype(np.uint8)
+        target_image = image.copy() if use_alpha_target else flattened
         mask = image[:, :, 3] >= mask_threshold
     else:
-        image_bgr = image[:, :, :3].copy()
-        mask = fs.extract_mask(image_bgr) > 0
-    return image_bgr, _clean_mask(mask), display_rgba
+        target_image = image[:, :, :3].copy()
+        mask = fs.extract_mask(target_image) > 0
+    return target_image, _clean_mask(mask), _ensure_bgra(target_image)
 
 
 def _compute_bbox(mask):
@@ -197,23 +197,23 @@ def _parse_fill(node):
     return color_hex, alpha
 
 
-def _parse_triangle(node, scale_factor, offset_x, offset_y):
+def _parse_triangle(node, scale_x, scale_y, offset_x, offset_y):
     points_raw = re.findall(r"-?\d+(?:\.\d+)?", node.attrib.get("points", ""))
     if len(points_raw) != 6:
         return None
     pts = np.array([float(value) for value in points_raw], dtype=np.float64).reshape(3, 2)
     color_hex, alpha = _parse_fill(node)
+    pts[:, 0] = offset_x + pts[:, 0] * scale_x
+    pts[:, 1] = offset_y + pts[:, 1] * scale_y
     center = np.mean(pts, axis=0)
-    width = float(np.max(pts[:, 0]) - np.min(pts[:, 0])) * scale_factor
-    height = float(np.max(pts[:, 1]) - np.min(pts[:, 1])) * scale_factor
+    width = float(np.max(pts[:, 0]) - np.min(pts[:, 0]))
+    height = float(np.max(pts[:, 1]) - np.min(pts[:, 1]))
     edge = pts[1] - pts[0]
     angle = math.degrees(math.atan2(edge[1], edge[0])) + 90.0
-    cx = offset_x + float(center[0]) * scale_factor
-    cy = offset_y + float(center[1]) * scale_factor
     return {
         "type": "triangle",
-        "cx": cx,
-        "cy": cy,
+        "cx": float(center[0]),
+        "cy": float(center[1]),
         "size": max(width, height, 1.0),
         "height": max(height, 1.0),
         "angle": angle,
@@ -223,14 +223,14 @@ def _parse_triangle(node, scale_factor, offset_x, offset_y):
     }
 
 
-def _parse_shape_node(node, scale_factor, offset_x, offset_y):
+def _parse_shape_node(node, scale_x, scale_y, offset_x, offset_y):
     tag = _local_name(node.tag)
     if tag == "ellipse":
         color_hex, alpha = _parse_fill(node)
-        cx = offset_x + float(node.attrib.get("cx", "0")) * scale_factor
-        cy = offset_y + float(node.attrib.get("cy", "0")) * scale_factor
-        rx = float(node.attrib.get("rx", "0")) * scale_factor
-        ry = float(node.attrib.get("ry", "0")) * scale_factor
+        cx = offset_x + float(node.attrib.get("cx", "0")) * scale_x
+        cy = offset_y + float(node.attrib.get("cy", "0")) * scale_y
+        rx = float(node.attrib.get("rx", "0")) * scale_x
+        ry = float(node.attrib.get("ry", "0")) * scale_y
         return {
             "type": "circle",
             "cx": cx,
@@ -248,25 +248,25 @@ def _parse_shape_node(node, scale_factor, offset_x, offset_y):
         y = float(node.attrib.get("y", "0"))
         width = float(node.attrib.get("width", "0"))
         height = float(node.attrib.get("height", "0"))
-        cx = offset_x + (x + width / 2.0) * scale_factor
-        cy = offset_y + (y + height / 2.0) * scale_factor
+        cx = offset_x + (x + width / 2.0) * scale_x
+        cy = offset_y + (y + height / 2.0) * scale_y
         return {
             "type": "rect",
             "cx": cx,
             "cy": cy,
-            "hw": max(width * scale_factor / 2.0, 0.5),
-            "hh": max(height * scale_factor / 2.0, 0.5),
+            "hw": max(width * scale_x / 2.0, 0.5),
+            "hh": max(height * scale_y / 2.0, 0.5),
             "angle": 0.0,
             "color": color_hex,
             "alpha": alpha,
             "packed_color": _pack_color(color_hex, alpha),
         }
     if tag == "polygon":
-        return _parse_triangle(node, scale_factor, offset_x, offset_y)
+        return _parse_triangle(node, scale_x, scale_y, offset_x, offset_y)
     return None
 
 
-def _parse_nested_group(group, scale_factor, offset_x, offset_y):
+def _parse_nested_group(group, scale_x, scale_y, offset_x, offset_y):
     numbers = _parse_transform_numbers(group.attrib.get("transform", ""))
     if len(numbers) < 5:
         return None
@@ -279,10 +279,10 @@ def _parse_nested_group(group, scale_factor, offset_x, offset_y):
     if child_tag == "ellipse":
         return {
             "type": "circle",
-            "cx": offset_x + tx * scale_factor,
-            "cy": offset_y + ty * scale_factor,
-            "rx": max(sx * scale_factor, 0.5),
-            "ry": max(sy * scale_factor, 0.5),
+            "cx": offset_x + tx * scale_x,
+            "cy": offset_y + ty * scale_y,
+            "rx": max(sx * scale_x, 0.5),
+            "ry": max(sy * scale_y, 0.5),
             "angle": angle,
             "color": color_hex,
             "alpha": alpha,
@@ -291,10 +291,10 @@ def _parse_nested_group(group, scale_factor, offset_x, offset_y):
     if child_tag == "rect":
         return {
             "type": "rect",
-            "cx": offset_x + tx * scale_factor,
-            "cy": offset_y + ty * scale_factor,
-            "hw": max(sx * scale_factor / 2.0, 0.5),
-            "hh": max(sy * scale_factor / 2.0, 0.5),
+            "cx": offset_x + tx * scale_x,
+            "cy": offset_y + ty * scale_y,
+            "hw": max(sx * scale_x / 2.0, 0.5),
+            "hh": max(sy * scale_y / 2.0, 0.5),
             "angle": angle,
             "color": color_hex,
             "alpha": alpha,
@@ -303,7 +303,7 @@ def _parse_nested_group(group, scale_factor, offset_x, offset_y):
     return None
 
 
-def parse_primitive_svg(svg_path, scale_factor=1.0, offset_x=0.0, offset_y=0.0):
+def parse_primitive_svg(svg_path, scale_x=1.0, scale_y=1.0, offset_x=0.0, offset_y=0.0):
     tree = ET.parse(svg_path)
     root = tree.getroot()
     outer_group = root.find("svg:g", SVG_NS)
@@ -314,54 +314,36 @@ def parse_primitive_svg(svg_path, scale_factor=1.0, offset_x=0.0, offset_y=0.0):
     for child in outer_group:
         tag = _local_name(child.tag)
         if tag == "g":
-            shape = _parse_nested_group(child, scale_factor, offset_x, offset_y)
+            shape = _parse_nested_group(child, scale_x, scale_y, offset_x, offset_y)
         else:
-            shape = _parse_shape_node(child, scale_factor, offset_x, offset_y)
+            shape = _parse_shape_node(child, scale_x, scale_y, offset_x, offset_y)
         if shape is not None:
             results.append(shape)
     return results
 
 
-def _render_preview_on_canvas(preview_crop, full_width, full_height, bbox, full_mask, has_alpha_input=False):
-    x0, y0, x1, y1 = bbox
-    canvas = np.zeros((full_height, full_width, 4), dtype=np.uint8)
-    crop_h = max(y1 - y0, 1)
-    crop_w = max(x1 - x0, 1)
-    
-    # Convert BGR to RGBA with proper alpha handling
-    if preview_crop.shape[2] == 3:
-        # Create RGBA from BGR preview
-        resized = cv2.cvtColor(preview_crop, cv2.COLOR_BGR2BGRA)
+def _render_preview(preview_image, full_width, full_height, alpha_map=None, transparent_output=False):
+    if preview_image is None:
+        raise ValueError("primitive output preview is missing")
+
+    if preview_image.ndim == 2:
+        preview_rgba = cv2.cvtColor(preview_image, cv2.COLOR_GRAY2BGRA)
+    elif preview_image.shape[2] == 4:
+        preview_rgba = preview_image.copy()
     else:
-        resized = preview_crop.copy()
-    
-    resized = cv2.resize(resized, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
-    
-    # Use mask to set alpha - 0 outside mask
-    resized_mask = cv2.resize(
-        (full_mask[y0:y1, x0:x1].astype(np.uint8) * 255),
-        (crop_w, crop_h),
-        interpolation=cv2.INTER_NEAREST,
-    )
-    
-    # Combine preview with mask alpha
-    canvas[y0:y1, x0:x1, :3] = resized[:, :, :3]
-    
-    if has_alpha_input:
-        # For PNG input: transparent background outside mask
-        canvas[y0:y1, x0:x1, 3] = cv2.bitwise_and(resized[:, :, 3], resized_mask)
-    else:
-        # For JPG input: white background outside mask
-        # Keep alpha=255 for foreground, alpha=255 for background too (opaque white)
-        canvas[y0:y1, x0:x1, 3] = 255
-        # Fill background with white
-        bg_mask = (resized_mask == 0)
-        for c in range(3):
-            channel = canvas[y0:y1, x0:x1, c]
-            channel[bg_mask] = 255
-            canvas[y0:y1, x0:x1, c] = channel
-    
-    return canvas
+        preview_rgba = cv2.cvtColor(preview_image, cv2.COLOR_BGR2BGRA)
+
+    preview_rgba = cv2.resize(preview_rgba, (full_width, full_height), interpolation=cv2.INTER_LINEAR)
+    if transparent_output:
+        alpha = preview_rgba[:, :, 3]
+        if alpha_map is not None:
+            resized_alpha = cv2.resize(alpha_map, (full_width, full_height), interpolation=cv2.INTER_LINEAR)
+            alpha = np.rint(alpha.astype(np.float32) * (resized_alpha.astype(np.float32) / 255.0)).astype(np.uint8)
+        preview_rgba[:, :, 3] = alpha
+        return preview_rgba
+
+    preview_rgba[:, :, 3] = 255
+    return preview_rgba
 
 
 def fit_image_with_primitive(image, config=None):
@@ -371,29 +353,39 @@ def fit_image_with_primitive(image, config=None):
     primitive_exe = ensure_primitive_binary()
     mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
     num_primitives = int(max(1, config.get("num_primitives", 400)))
+    transparent_output = bool(config.get("transparent_output", False))
 
-    image_bgr, mask, image_rgba = _extract_image_and_mask(image, mask_threshold)
-    full_height, full_width = image_bgr.shape[:2]
+    target_image, mask, image_rgba = _extract_image_and_mask(
+        image,
+        mask_threshold,
+        use_alpha_target=transparent_output,
+    )
+    full_height, full_width = target_image.shape[:2]
     x0, y0, x1, y1 = _compute_bbox(mask)
-    crop_bgr = image_bgr[y0:y1, x0:x1].copy()
-    crop_mask = mask[y0:y1, x0:x1]
-    crop_bgr[~crop_mask] = 255
 
-    crop_h, crop_w = crop_bgr.shape[:2]
-    max_crop_dim = max(crop_w, crop_h)
     detail_scale = float(max(0.25, config.get("detail_scale", 1.0)))
-    target_fit_size = int(round(max_crop_dim * detail_scale))
-    fit_size = int(max(16, min(target_fit_size, 2048)))
-    resize_scale = max_crop_dim / float(fit_size)
-    coord_scale = resize_scale
-    output_size = max(32, fit_size)
+    full_max_dim = max(full_width, full_height)
+    canvas_limit = int(max(16, min(round(full_max_dim * detail_scale), full_max_dim, 2048)))
+    resize_ratio = min(1.0, float(canvas_limit) / float(max(full_max_dim, 1)))
+    work_width = max(1, int(round(full_width * resize_ratio)))
+    work_height = max(1, int(round(full_height * resize_ratio)))
+    output_size = max(work_width, work_height)
+
+    if work_width != full_width or work_height != full_height:
+        interpolation = cv2.INTER_AREA if resize_ratio < 1.0 else cv2.INTER_LINEAR
+        work_image = cv2.resize(target_image, (work_width, work_height), interpolation=interpolation)
+    else:
+        work_image = target_image.copy()
+
+    scale_x = full_width / float(work_width)
+    scale_y = full_height / float(work_height)
     shape_configs = _build_shape_configs(config.get("allowed_shapes", ["circle"]), num_primitives)
 
     with tempfile.TemporaryDirectory(prefix="primitive_fit_") as tmpdir:
         input_path = os.path.join(tmpdir, "input.png")
         svg_path = os.path.join(tmpdir, "output.svg")
         png_path = os.path.join(tmpdir, "output.png")
-        cv2.imwrite(input_path, crop_bgr)
+        cv2.imwrite(input_path, work_image)
 
         cmd = [
             primitive_exe,
@@ -406,31 +398,35 @@ def fit_image_with_primitive(image, config=None):
             "-a",
             "128",
             "-r",
-            str(fit_size),
+            "0",
             "-s",
             str(output_size),
         ]
+        if transparent_output:
+            cmd.extend(["-bg", "ffffff00"])
+        else:
+            cmd.extend(["-bg", "ffffff"])
         for mode, count in shape_configs:
             cmd.extend(["-m", str(mode), "-n", str(count)])
         subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-        results = parse_primitive_svg(
-            svg_path,
-            scale_factor=coord_scale,
-            offset_x=float(x0),
-            offset_y=float(y0),
-        )
-        preview_crop = cv2.imread(png_path, cv2.IMREAD_COLOR)
-        if preview_crop is None:
+        results = parse_primitive_svg(svg_path, scale_x=scale_x, scale_y=scale_y)
+        preview_image = cv2.imread(png_path, cv2.IMREAD_UNCHANGED)
+        if preview_image is None:
             raise ValueError("primitive 输出 PNG 读取失败")
 
-    # Determine if input has alpha channel (PNG with transparency)
-    has_alpha_input = (image.ndim == 3 and image.shape[2] == 4)
-    preview = _render_preview_on_canvas(preview_crop, full_width, full_height, (x0, y0, x1, y1), mask, has_alpha_input)
+    alpha_map = image[:, :, 3] if transparent_output and image.ndim == 3 and image.shape[2] == 4 else None
+    preview = _render_preview(
+        preview_image,
+        full_width,
+        full_height,
+        alpha_map=alpha_map,
+        transparent_output=transparent_output,
+    )
     return {
         "results": results,
         "preview": preview,
-        "image_bgr": image_bgr,
+        "image_bgr": target_image[:, :, :3].copy() if target_image.ndim == 3 and target_image.shape[2] == 4 else target_image,
         "image_rgba": image_rgba,
         "mask": mask,
         "bbox": {
@@ -439,5 +435,5 @@ def fit_image_with_primitive(image, config=None):
             "width": max(1, x1 - x0),
             "height": max(1, y1 - y0),
         },
-        "fit_size": fit_size,
+        "fit_size": canvas_limit,
     }
