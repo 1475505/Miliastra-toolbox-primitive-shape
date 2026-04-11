@@ -109,7 +109,8 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span id="numPrimsVal" class="val-tag">400</span>
               </div>
               <p class="param-desc">越多越细，但耗时也更高。</p>
-              <input type="range" name="num_primitives" id="numPrims" min="40" max="1500" step="10" value="400">
+              <input type="range" name="num_primitives" id="numPrims" min="40" max="2000" step="10" value="400">
+              <input type="number" name="num_primitives_manual" id="numPrimsManual" min="40" max="3000" value="400" class="num-input" style="margin-top:8px;width:100%;">
             </div>
 
             <div class="param-item">
@@ -242,7 +243,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
         <form action="/retry/{{ task_id }}" method="POST">
           <div class="config-row">
             <label>图元数量</label>
-            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="1500" class="num-input">
+            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="3000" class="num-input">
           </div>
           <div class="config-row">
             <label>图片缩放</label>
@@ -345,7 +346,12 @@ def submit():
     }
 
     if mode == "fill":
-        cfg["num_primitives"] = int(request.form.get("num_primitives", 400))
+        # Support both slider and manual input for num_primitives
+        manual_prims = request.form.get("num_primitives_manual", "")
+        if manual_prims:
+            cfg["num_primitives"] = max(40, min(3000, int(manual_prims)))
+        else:
+            cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", 400))))
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", 127))
         cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
         cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
@@ -403,7 +409,7 @@ def retry(tid):
     cfg = {"mode": mode}
 
     if mode == "fill":
-        cfg["num_primitives"] = int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))
+        cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))))
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
         cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
         cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))

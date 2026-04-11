@@ -33,6 +33,27 @@
 
   ["numPrims", "imageScale", "outputAlpha"].forEach(setSliderValue);
 
+  // Sync numPrims slider and manual input
+  const numPrimsSlider = $("numPrims");
+  const numPrimsManual = $("numPrimsManual");
+  const numPrimsVal = $("numPrimsVal");
+  if (numPrimsSlider && numPrimsManual) {
+    // Slider changes -> update manual input
+    numPrimsSlider.addEventListener("input", () => {
+      numPrimsManual.value = numPrimsSlider.value;
+    });
+    // Manual input changes -> update slider (if within slider range)
+    numPrimsManual.addEventListener("input", () => {
+      const val = parseInt(numPrimsManual.value, 10);
+      if (!isNaN(val) && val >= 40 && val <= 2000) {
+        numPrimsSlider.value = val;
+      }
+      if (numPrimsVal) {
+        numPrimsVal.textContent = numPrimsManual.value;
+      }
+    });
+  }
+
   // Update outputAlpha display with % suffix
   const outputAlphaInput = $("outputAlpha");
   const outputAlphaVal = $("outputAlphaVal");
