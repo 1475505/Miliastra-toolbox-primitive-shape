@@ -178,36 +178,39 @@ class Rect(Shape):
 class Triangle(Shape):
     shape_type = ShapeType.TRIANGLE
 
-    def __init__(self, cx: float, cy: float, size: float, angle: float = 0.0):
+    def __init__(self, cx: float, cy: float, base_width: float, height: float | None = None, angle: float = 0.0):
         self.cx = float(cx)
         self.cy = float(cy)
-        self.size = float(size)
+        self.base_width = float(base_width)
+        self.height = float(base_width if height is None else height)
         self.angle = float(angle)
 
     def copy(self):
-        return Triangle(self.cx, self.cy, self.size, self.angle)
+        return Triangle(self.cx, self.cy, self.base_width, self.height, self.angle)
 
     def mutate(self, rng, width, height, cfg):
         candidate = self.copy()
-        step = max(cfg.min_size, min(cfg.max_size, self.size)) * rng.choice([0.35, 0.7, 1.0])
+        step = max(cfg.min_size, min(cfg.max_size, max(self.base_width, self.height))) * rng.choice([0.35, 0.7, 1.0])
         roll = rng.random()
-        if roll < 0.35:
+        if roll < 0.25:
             candidate.cx = float(np.clip(candidate.cx + rng.normal(0, step), 0, width - 1))
-        elif roll < 0.7:
+        elif roll < 0.5:
             candidate.cy = float(np.clip(candidate.cy + rng.normal(0, step), 0, height - 1))
+        elif roll < 0.7:
+            candidate.base_width = float(np.clip(candidate.base_width + rng.normal(0, step * 0.45), cfg.min_size, cfg.max_size))
         elif roll < 0.9:
-            candidate.size = float(np.clip(candidate.size + rng.normal(0, step * 0.5), cfg.min_size, cfg.max_size))
+            candidate.height = float(np.clip(candidate.height + rng.normal(0, step * 0.45), cfg.min_size, cfg.max_size))
         else:
             candidate.angle = float(candidate.angle + rng.normal(0, 18.0))
         return candidate
 
     def rasterize(self, width, height):
-        size = max(self.size, 0.5)
-        tri_h = size * math.sqrt(3.0) / 2.0
+        base_width = max(self.base_width, 0.5)
+        tri_h = max(self.height, 0.5)
         local_vertices = np.array([
             [0.0, -2.0 * tri_h / 3.0],
-            [-size / 2.0, tri_h / 3.0],
-            [size / 2.0, tri_h / 3.0],
+            [-base_width / 2.0, tri_h / 3.0],
+            [base_width / 2.0, tri_h / 3.0],
         ])
 
         angle = math.radians(self.angle)
@@ -380,7 +383,13 @@ def random_shape(rng, width, height, cfg, focus=None):
         radius_minor = max(cfg.min_size * 0.6, min(cfg.max_size, radius_major * math.exp(rng.uniform(-0.8, 0.8))))
         return Circle(cx, cy, radius_major, radius_minor, rng.uniform(-180.0, 180.0))
     if shape_type == ShapeType.TRIANGLE:
-        return Triangle(cx, cy, _random_size(rng, cfg), rng.uniform(-180.0, 180.0))
+        return Triangle(
+            cx,
+            cy,
+            _random_size(rng, cfg),
+            _random_size(rng, cfg),
+            rng.uniform(-180.0, 180.0),
+        )
     return Rect(cx, cy, _random_size(rng, cfg), _random_size(rng, cfg), rng.uniform(-90.0, 90.0))
 
 
@@ -508,7 +517,9 @@ def _serialize_shape(shape, color_hex, alpha, packed_color):
             "type": ShapeType.TRIANGLE,
             "cx": float(shape.cx),
             "cy": float(shape.cy),
-            "size": float(shape.size),
+            "size": float(shape.base_width),
+            "width": float(shape.base_width),
+            "height": float(shape.height),
             "angle": float(shape.angle),
             "color": color_hex,
             "alpha": float(alpha),
@@ -635,7 +646,9 @@ def render_results(target_img, results, mask=None, coverage_weights=None, output
         if result["type"] == ShapeType.CIRCLE:
             shape = Circle(result["cx"], result["cy"], result["rx"], result["ry"], result.get("angle", 0.0))
         elif result["type"] == ShapeType.TRIANGLE:
-            shape = Triangle(result["cx"], result["cy"], result["size"], result.get("angle", 0.0))
+            tri_width = float(result.get("width", result.get("size", 1.0)))
+            tri_height = float(result.get("height", tri_width * math.sqrt(3.0) / 2.0))
+            shape = Triangle(result["cx"], result["cy"], tri_width, tri_height, result.get("angle", 0.0))
         else:
             shape = Rect(result["cx"], result["cy"], result["hw"], result["hh"], result.get("angle", 0.0))
 
@@ -691,8 +704,8 @@ def results_to_elements(results, unit_scale, img_center, primitives_config=None,
         elif shape_key == ShapeType.TRIANGLE:
             preset = preset_map.get("triangle", {})
             element_type = "triangle"
-            tri_width = float(result["size"]) * unit_scale
-            tri_height = tri_width * math.sqrt(3.0) / 2.0
+            tri_width = float(result.get("width", result.get("size", 1.0))) * unit_scale
+            tri_height = float(result.get("height", float(result.get("size", 1.0)) * math.sqrt(3.0) / 2.0)) * unit_scale
             size = {
                 "width": round(tri_width, 4),
                 "height": round(tri_height, 4),

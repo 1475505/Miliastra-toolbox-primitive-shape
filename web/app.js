@@ -320,6 +320,8 @@
     $("infoRelative").textContent = `(${relative.x.toFixed(2)}, ${relative.y.toFixed(2)})`;
     if (normalizedType === "ellipse") {
       $("infoSize").textContent = `rx=${Number(element.size.rx || 0).toFixed(2)} ry=${Number(element.size.ry || 0).toFixed(2)}`;
+    } else if (normalizedType === "triangle") {
+      $("infoSize").textContent = `base=${Number(element.size.width || 0).toFixed(2)} height=${Number(element.size.height || 0).toFixed(2)}`;
     } else {
       $("infoSize").textContent = `${Number(element.size.width || 0).toFixed(2)} × ${Number(element.size.height || 0).toFixed(2)}`;
     }
@@ -426,7 +428,9 @@
         `相对原点: (${relative.x.toFixed(2)}, ${relative.y.toFixed(2)})`,
         normalizeType(element.type) === "ellipse"
           ? `尺寸: rx=${Number(element.size.rx || 0).toFixed(2)} ry=${Number(element.size.ry || 0).toFixed(2)}`
-          : `尺寸: ${Number(element.size.width || 0).toFixed(2)} × ${Number(element.size.height || 0).toFixed(2)}`,
+          : normalizeType(element.type) === "triangle"
+            ? `尺寸: base=${Number(element.size.width || 0).toFixed(2)} height=${Number(element.size.height || 0).toFixed(2)}`
+            : `尺寸: ${Number(element.size.width || 0).toFixed(2)} × ${Number(element.size.height || 0).toFixed(2)}`,
         `旋转: ${rotation.toFixed(1)}°`,
       ].join("<br>");
 
