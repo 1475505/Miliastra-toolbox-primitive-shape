@@ -11,6 +11,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends golang ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
 # 复制依赖文件
 COPY win/requirements.txt ./
 
@@ -21,6 +25,9 @@ RUN grep -v "pywebview" requirements.txt > requirements.tmp && \
 
 # 复制项目文件
 COPY . .
+
+RUN python -c "import primitive_backend; primitive_backend.ensure_primitive_binary()" && \
+    python build_pyc.py
 
 # 暴露端口（如 server.py 默认 5555）
 EXPOSE 5555

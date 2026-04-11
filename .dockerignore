@@ -17,6 +17,8 @@ LICENSE
 tech.md
 user_guide.md
 demo/
+tools/
+build/
 win/
 !win/requirements.txt
 deepseek.jpeg
