@@ -5,6 +5,7 @@ import threading
 import time
 import traceback
 import uuid
+from urllib.parse import quote
 
 from flask import Flask, Response, redirect, render_template_string, request, send_from_directory
 
@@ -43,6 +44,15 @@ def _derive_upload_image_name(filename):
     base_name = os.path.basename(str(filename).strip())
     stem, _ = os.path.splitext(base_name)
     return stem.strip()
+
+
+def _export_basename(image_name):
+    return (image_name or "").strip() or "shaper_result"
+
+
+def _attachment_filename(filename):
+    safe_ascii = "".join(ch if ch.isascii() and ch not in {'"', "\\"} else "_" for ch in filename) or "download"
+    return f"attachment; filename={safe_ascii}; filename*=UTF-8''{quote(filename)}"
 
 
 PAGE_UPLOAD = r"""<!DOCTYPE html>
@@ -266,6 +276,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     var RESULT={{ result_json|safe }};
     var TASK_CFG={{ config_json|safe }};
     var TASK_ID="{{ task_id }}";
+    var TASK_IMAGE_NAME={{ image_name_json|safe }};
   </script>
 </head>
 <body>
@@ -583,6 +594,7 @@ def result(tid):
         result_json=json.dumps(result_data),
         config_json=json.dumps(cfg),
         task_id=tid,
+        image_name_json=json.dumps(task.get("image_name", "")),
         count=result_data["elements_count"],
         elapsed=result_data["elapsed_seconds"],
         cfg_np=cfg.get("num_primitives", 400),
@@ -696,7 +708,8 @@ def download_overlimit_gia(tid):
     )
 
     response = Response(gia_bytes, mimetype="application/octet-stream")
-    response.headers["Content-Disposition"] = f'attachment; filename="image_fit_{tid}.gia"'
+    export_name = f"{_export_basename(task.get('image_name', ''))}.gia"
+    response.headers["Content-Disposition"] = _attachment_filename(export_name)
     return response
 
 

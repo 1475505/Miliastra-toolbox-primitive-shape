@@ -8,6 +8,7 @@
   const mode = data.mode || "fill";
   const fillVariant = (data.config && data.config.fill_variant) || "mask";
   const outputHasTransparency = Boolean(data.config && data.config.output_has_transparency);
+  const taskImageName = (window.TASK_IMAGE_NAME || "").trim();
   const imageWidth = data.image_size.width;
   const imageHeight = data.image_size.height;
   const pixelPerUnit = (data.config && data.config.pixel_per_unit) || (data.config && data.config.primitive_size) || 1;
@@ -29,6 +30,26 @@
     base: null,
     mask: null,
   };
+
+  function isBackgroundElement(element) {
+    return Boolean(element && element.is_background);
+  }
+
+  function visibleElements() {
+    return data.elements.filter((element) => !isBackgroundElement(element));
+  }
+
+  function displayElementIndex(index) {
+    let displayIndex = -1;
+    for (let i = 0; i <= index; i += 1) {
+      if (!isBackgroundElement(data.elements[i])) displayIndex += 1;
+    }
+    return Math.max(displayIndex, 0);
+  }
+
+  function exportFileName(ext) {
+    return `${taskImageName || "shaper_result"}.${ext}`;
+  }
 
   function loadImage(base64) {
     return new Promise((resolve) => {
@@ -118,8 +139,8 @@
 
   function drawElement(element, index) {
     const center = imagePointToElementCenter(element);
-    const selected = index === selectedIndex;
-    const highlighted = selected || (selectedIndex === null && index === hoveredIndex);
+    const selected = !isBackgroundElement(element) && index === selectedIndex;
+    const highlighted = !isBackgroundElement(element) && (selected || (selectedIndex === null && index === hoveredIndex));
 
     ctx.save();
     ctx.translate(center.x, center.y);
@@ -248,6 +269,7 @@
 
   function hitTest(x, y) {
     for (let i = data.elements.length - 1; i >= 0; i -= 1) {
+      if (isBackgroundElement(data.elements[i])) continue;
       if (pointInElement(data.elements[i], x, y)) return i;
     }
     return null;
@@ -281,7 +303,7 @@
     const rotation = element.rotation ? Number(element.rotation.z || 0) : 0;
     const normalizedType = normalizeType(element.type);
 
-    $("infoId").textContent = element.id != null ? element.id : index;
+    $("infoId").textContent = element.id != null ? element.id : displayElementIndex(index);
     $("infoType").textContent = shapeName(element.type);
     $("infoCenter").textContent = `(${element.center.x.toFixed(2)}, ${element.center.y.toFixed(2)})`;
     $("infoRelative").textContent = `(${relative.x.toFixed(2)}, ${relative.y.toFixed(2)})`;
@@ -308,18 +330,19 @@
   }
 
   function updateStats() {
-    const ellipseCount = data.elements.filter((element) => normalizeType(element.type) === "ellipse").length;
-    const triangleCount = data.elements.filter((element) => normalizeType(element.type) === "triangle").length;
-    const rectCount = data.elements.length - ellipseCount - triangleCount;
+    const elements = visibleElements();
+    const ellipseCount = elements.filter((element) => normalizeType(element.type) === "ellipse").length;
+    const triangleCount = elements.filter((element) => normalizeType(element.type) === "triangle").length;
+    const rectCount = elements.length - ellipseCount - triangleCount;
 
     if ($("modeLabel")) $("modeLabel").textContent = mode === "fill" ? "填充拟合" : "轮廓描边";
     if ($("statMode")) $("statMode").textContent = mode === "fill" ? "填充拟合" : "轮廓描边";
-    if ($("statTotal")) $("statTotal").textContent = String(data.elements.length);
+    if ($("statTotal")) $("statTotal").textContent = String(elements.length);
     if ($("statEllipse")) $("statEllipse").textContent = String(ellipseCount);
     if ($("statRect")) $("statRect").textContent = String(rectCount);
     if ($("statTriangle")) $("statTriangle").textContent = String(triangleCount);
     if ($("statImgSize")) $("statImgSize").textContent = `${imageWidth}×${imageHeight}`;
-    if ($("elemCountDisplay")) $("elemCountDisplay").textContent = `图元: ${data.elements.length}`;
+    if ($("elemCountDisplay")) $("elemCountDisplay").textContent = `图元: ${elements.length}`;
 
     const fillRetry = $("retrySectionFill");
     const outlineRetry = $("retrySectionOutline");
@@ -387,7 +410,7 @@
       const rotation = element.rotation ? Number(element.rotation.z || 0) : 0;
       tooltip.hidden = false;
       tooltip.innerHTML = [
-        `<b>#${hoveredIndex}</b> ${shapeName(element.type)}`,
+        `<b>#${displayElementIndex(hoveredIndex)}</b> ${shapeName(element.type)}`,
         `中心: (${element.center.x.toFixed(2)}, ${element.center.y.toFixed(2)})`,
         `相对原点: (${relative.x.toFixed(2)}, ${relative.y.toFixed(2)})`,
         normalizeType(element.type) === "ellipse"
@@ -455,6 +478,8 @@
     $("btnExportJSON").addEventListener("click", () => {
       const originUnits = { x: origin.x / pixelPerUnit, y: -origin.y / pixelPerUnit };
       const payload = {
+        image_name: taskImageName || null,
+        group_name: taskImageName || null,
         origin: originUnits,
         image_size: data.image_size,
         config: window.TASK_CFG || data.config,
@@ -479,18 +504,18 @@
           name: element.name,
         })),
       };
-      downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), "shaper_result.json");
+      downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), exportFileName("json"));
     });
   }
 
   if ($("btnExportPNG")) {
     $("btnExportPNG").addEventListener("click", () => {
       if (mode === "fill" && data.preview_base64) {
-        downloadBase64(data.preview_base64, "shaper_result.png");
+        downloadBase64(data.preview_base64, exportFileName("png"));
         return;
       }
       canvas.toBlob((blob) => {
-        if (blob) downloadBlob(blob, "shaper_result.png");
+        if (blob) downloadBlob(blob, exportFileName("png"));
       }, "image/png");
     });
   }
@@ -508,7 +533,7 @@
           }
           return response.blob();
         })
-        .then((blob) => downloadBlob(blob, `shaper_${taskId || "result"}.gia`))
+        .then((blob) => downloadBlob(blob, exportFileName("gia")))
         .catch((error) => alert(`导出失败: ${error && error.message ? error.message : error}`));
     });
   }

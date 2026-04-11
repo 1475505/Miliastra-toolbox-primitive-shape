@@ -142,6 +142,7 @@ def process_image_fill(image_bytes, config=None):
     has_transparent_alpha = _has_transparent_alpha(image)
     mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
     transparent_output = has_transparent_alpha and enable_png_mode
+    needs_white_background = has_transparent_alpha and not enable_png_mode
 
     if transparent_output:
         fit_variant = "png"
@@ -207,22 +208,27 @@ def process_image_fill(image_bytes, config=None):
     )
 
     # 默认模式（PNG模式关闭）：添加白色背景图元
-    if not transparent_output:
+    if needs_white_background:
         # 白色矩形背景，覆盖整个图像区域
+        background_bleed_px = 4.0
+        bg_center_x = (width / 2.0) * unit_scale
+        bg_center_y = -(height / 2.0) * unit_scale
+        origin_x = float(image_center[0]) * unit_scale
+        origin_y = -float(image_center[1]) * unit_scale
         bg_element = {
             "type": "rectangle",
             "shape": "rect",
             "center": {
-                "x": round((width / 2.0 - image_center[0]) * unit_scale, 4),
-                "y": round(-(height / 2.0 - image_center[1]) * unit_scale, 4),
+                "x": round(bg_center_x, 4),
+                "y": round(bg_center_y, 4),
             },
             "relative": {
-                "x": 0.0,
-                "y": 0.0,
+                "x": round(bg_center_x - origin_x, 4),
+                "y": round(bg_center_y - origin_y, 4),
             },
             "size": {
-                "width": round(width * unit_scale, 4),
-                "height": round(height * unit_scale, 4),
+                "width": round((width + background_bleed_px * 2.0) * unit_scale, 4),
+                "height": round((height + background_bleed_px * 2.0) * unit_scale, 4),
             },
             "rotation": 0.0,
             "color": "#ffffff",
