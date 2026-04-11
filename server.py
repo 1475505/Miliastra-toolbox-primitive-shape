@@ -109,7 +109,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span id="numPrimsVal" class="val-tag">400</span>
               </div>
               <p class="param-desc">越多越细，但耗时也更高。</p>
-              <input type="range" name="num_primitives" id="numPrims" min="40" max="1000" step="10" value="400">
+              <input type="range" name="num_primitives" id="numPrims" min="40" max="1500" step="10" value="400">
             </div>
 
             <div class="param-item">
@@ -119,6 +119,15 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
               </div>
               <p class="param-desc">1.0 表示导出尺寸与原图分辨率一致。</p>
               <input type="range" name="image_scale" id="imageScale" min="0.5" max="4" step="0.1" value="1.0">
+            </div>
+
+            <div class="param-item">
+              <div class="param-head">
+                <span class="param-title">透明度</span>
+                <span id="outputAlphaVal" class="val-tag">100%</span>
+              </div>
+              <p class="param-desc">100% 表示不透明，数值越低越透明。</p>
+              <input type="range" name="output_alpha" id="outputAlpha" min="10" max="100" step="5" value="100">
             </div>
           </section>
         </div>
@@ -233,11 +242,15 @@ PAGE_RESULT = r"""<!DOCTYPE html>
         <form action="/retry/{{ task_id }}" method="POST">
           <div class="config-row">
             <label>图元数量</label>
-            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="1000" class="num-input">
+            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="1500" class="num-input">
           </div>
           <div class="config-row">
             <label>图片缩放</label>
             <input type="number" name="image_scale" value="{{ cfg_scale }}" min="0.5" max="4" step="0.1" class="num-input">
+          </div>
+          <div class="config-row">
+            <label>透明度</label>
+            <input type="number" name="output_alpha" value="{{ cfg_alpha }}" min="10" max="100" step="5" class="num-input">
           </div>
           <button type="submit" class="btn-primary" style="margin-top:8px">重新处理</button>
         </form>
@@ -336,6 +349,7 @@ def submit():
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", 127))
         cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
         cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
+        cfg["output_alpha"] = float(request.form.get("output_alpha", 100)) / 100.0
         allowed_shapes = []
         if request.form.get("shape_circle") == "on":
             allowed_shapes.append("circle")
@@ -393,6 +407,7 @@ def retry(tid):
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
         cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
         cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))
+        cfg["output_alpha"] = old_cfg.get("output_alpha", 1.0)
         cfg["allowed_shapes"] = old_cfg.get("allowed_shapes", ["circle"])
     else:
         cfg["primitive_size"] = float(request.form.get("primitive_size", old_cfg.get("primitive_size", 30)))
@@ -456,6 +471,7 @@ def result(tid):
         elapsed=result_data["elapsed_seconds"],
         cfg_np=cfg.get("num_primitives", 400),
         cfg_scale=cfg.get("image_scale", 1.0),
+        cfg_alpha=int(cfg.get("output_alpha", 1.0) * 100),
     )
 
 

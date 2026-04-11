@@ -31,7 +31,17 @@
     });
   }
 
-  ["numPrims", "imageScale"].forEach(setSliderValue);
+  ["numPrims", "imageScale", "outputAlpha"].forEach(setSliderValue);
+
+  // Update outputAlpha display with % suffix
+  const outputAlphaInput = $("outputAlpha");
+  const outputAlphaVal = $("outputAlphaVal");
+  if (outputAlphaInput && outputAlphaVal) {
+    outputAlphaVal.textContent = outputAlphaInput.value + "%";
+    outputAlphaInput.addEventListener("input", () => {
+      outputAlphaVal.textContent = outputAlphaInput.value + "%";
+    });
+  }
 
   function syncShapeLabels() {
     document.querySelectorAll(".shape-check").forEach((label) => {

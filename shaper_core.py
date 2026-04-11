@@ -21,7 +21,11 @@ import primitive_backend
 
 
 def _encode_png_base64(image):
-    ok, buf = cv2.imencode(".png", image)
+    # Handle RGBA images to preserve alpha channel
+    if image.ndim == 3 and image.shape[2] == 4:
+        ok, buf = cv2.imencode(".png", image)
+    else:
+        ok, buf = cv2.imencode(".png", image)
     if not ok:
         raise ValueError("failed to encode png")
     return base64.b64encode(buf).decode("utf-8")
@@ -72,6 +76,7 @@ def process_image_fill(image_bytes, config=None):
 
     unit_scale = float(max(0.1, config.get("image_scale", 1.0)))
 
+    output_alpha = float(config.get("output_alpha", 1.0))
     primitive_fit = primitive_backend.fit_image_with_primitive(
         image,
         {
@@ -91,6 +96,7 @@ def process_image_fill(image_bytes, config=None):
         unit_scale,
         image_center,
         config.get("primitives", []),
+        output_alpha=output_alpha,
     )
 
     bbox = primitive_fit["bbox"]

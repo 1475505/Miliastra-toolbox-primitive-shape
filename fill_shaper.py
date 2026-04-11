@@ -36,7 +36,7 @@ class FillConfig:
     min_mask_coverage: float = 0.7
     spill_penalty: float = 12000.0
     random_seed: int | None = None
-    output_alpha: float = 0.5
+    output_alpha: float = 1.0  # Default 100% opacity (fully opaque)
 
 
 def _empty_pixels():
@@ -636,7 +636,7 @@ def render_results(target_img, results, mask=None):
     return np.clip(canvas, 0, 255).astype(np.uint8)
 
 
-def results_to_elements(results, unit_scale, img_center, primitives_config=None):
+def results_to_elements(results, unit_scale, img_center, primitives_config=None, output_alpha=None):
     preset_map = {}
     if primitives_config:
         for preset in primitives_config:
@@ -678,7 +678,11 @@ def results_to_elements(results, unit_scale, img_center, primitives_config=None)
             }
 
         color_hex = result["color"] if isinstance(result.get("color"), str) else _rgb_to_hex(result.get("color", [255, 255, 255]))
-        alpha = float(result.get("alpha", 1.0))
+        # Apply output_alpha override if specified (0.0-1.0)
+        if output_alpha is not None:
+            alpha = float(output_alpha)
+        else:
+            alpha = float(result.get("alpha", 1.0))
         image_asset_ref = int(
             preset.get("image_asset_ref")
             or preset.get("asset_id")

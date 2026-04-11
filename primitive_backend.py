@@ -327,14 +327,26 @@ def _render_preview_on_canvas(preview_crop, full_width, full_height, bbox, full_
     canvas = np.zeros((full_height, full_width, 4), dtype=np.uint8)
     crop_h = max(y1 - y0, 1)
     crop_w = max(x1 - x0, 1)
-    resized = cv2.resize(preview_crop, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
+    
+    # Convert BGR to RGBA with proper alpha handling
+    if preview_crop.shape[2] == 3:
+        # Create RGBA from BGR preview
+        resized = cv2.cvtColor(preview_crop, cv2.COLOR_BGR2BGRA)
+    else:
+        resized = preview_crop.copy()
+    
+    resized = cv2.resize(resized, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
+    
+    # Use mask to set alpha - 0 outside mask
     resized_mask = cv2.resize(
         (full_mask[y0:y1, x0:x1].astype(np.uint8) * 255),
         (crop_w, crop_h),
         interpolation=cv2.INTER_NEAREST,
     )
-    canvas[y0:y1, x0:x1, :3] = resized
-    canvas[y0:y1, x0:x1, 3] = resized_mask
+    
+    # Combine preview with mask alpha
+    canvas[y0:y1, x0:x1, :3] = resized[:, :, :3]
+    canvas[y0:y1, x0:x1, 3] = cv2.bitwise_and(resized[:, :, 3], resized_mask)
     return canvas
 
 
