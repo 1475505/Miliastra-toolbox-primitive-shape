@@ -223,7 +223,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
         </ol>
         <ul class="tips">
           <li>⚠️ 开发中 (demo)，有很多 bug，已知目前对三角形和矩形支持不友好，优化中</li>
-          <li>暂不支持 PNG 图片的背景透明，可能产生白色背景，此问题后续优化。</li>
+          <li>PNG 图片默认会将透明区域与白色背景混合。如需保留透明背景，请在参数中开启「PNG 模式」。</li>
           <li>原本的装饰物模式可能因为新增特性导致不可用</li>
           <li>遮罩待优化</li>
           <li>GIA 暂时只支持超限模式资产.</li>
@@ -242,7 +242,7 @@ PAGE_STATUS = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="1">
+  <meta http-equiv="refresh" content="5">
   <link rel="stylesheet" href="/web/style.css">
 </head>
 <body>

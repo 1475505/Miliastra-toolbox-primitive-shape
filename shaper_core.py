@@ -206,6 +206,32 @@ def process_image_fill(image_bytes, config=None):
         output_alpha=output_alpha,
     )
 
+    # 默认模式（PNG模式关闭）：添加白色背景图元
+    if not transparent_output:
+        # 白色矩形背景，覆盖整个图像区域
+        bg_element = {
+            "type": "rectangle",
+            "shape": "rect",
+            "center": {
+                "x": round((width / 2.0 - image_center[0]) * unit_scale, 4),
+                "y": round(-(height / 2.0 - image_center[1]) * unit_scale, 4),
+            },
+            "relative": {
+                "x": 0.0,
+                "y": 0.0,
+            },
+            "size": {
+                "width": round(width * unit_scale, 4),
+                "height": round(height * unit_scale, 4),
+            },
+            "rotation": 0.0,
+            "color": "#ffffff",
+            "alpha": 1.0,
+            "packed_color": 0xFFFFFFFF,  # 白色不透明
+            "is_background": True,
+        }
+        elements.insert(0, bg_element)
+
     x0, y0, x1, y1 = _mask_bbox(coverage_for_bbox)
     mask_width = max(1, x1 - x0)
     mask_height = max(1, y1 - y0)
