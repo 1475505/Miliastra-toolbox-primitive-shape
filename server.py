@@ -47,6 +47,9 @@ def _derive_upload_image_name(filename):
 
 
 def _export_basename(image_name):
+    normalized = _derive_upload_image_name(image_name)
+    if normalized:
+        return normalized
     return (image_name or "").strip() or "shaper_result"
 
 
@@ -443,6 +446,8 @@ def submit():
     mode = request.form.get("mode", "fill")
     cfg = {
         "mode": mode,
+        "source_filename": upload.filename or "",
+        "source_ext": os.path.splitext(upload.filename or "")[1].lower(),
         "origin": {
             "type": request.form.get("origin_type", "center"),
             "x": request.form.get("origin_x", ""),
@@ -697,7 +702,7 @@ def download_overlimit_gia(tid):
     json_data = {
         "elements": elements,
         "mask": mask_cfg,
-        "group_name": task.get("image_name", ""),
+        "group_name": _export_basename(task.get("image_name", "")),
     }
 
     mod = _load_json_to_gia()

@@ -75,6 +75,14 @@ def _prepare_browser_image(image, preserve_alpha):
     return _flatten_to_bgr(image)
 
 
+def _source_is_png(config):
+    source_ext = str((config or {}).get("source_ext", "")).strip().lower()
+    if source_ext:
+        return source_ext == ".png"
+    source_name = str((config or {}).get("source_filename", "")).strip().lower()
+    return source_name.endswith(".png")
+
+
 def _extract_fill_image_and_mask(image, mask_threshold):
     if image.ndim == 2:
         image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -139,10 +147,12 @@ def process_image_fill(image_bytes, config=None):
     output_alpha = float(config.get("output_alpha", 1.0))
     allowed_types = _fill_allowed_types(config)
     enable_png_mode = bool(config.get("enable_png_mode", False))
+    source_is_png = _source_is_png(config)
     has_transparent_alpha = _has_transparent_alpha(image)
+    png_with_transparency = source_is_png and has_transparent_alpha
     mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
-    transparent_output = has_transparent_alpha and enable_png_mode
-    needs_white_background = has_transparent_alpha and not enable_png_mode
+    transparent_output = png_with_transparency and enable_png_mode
+    needs_white_background = png_with_transparency and not enable_png_mode
 
     if transparent_output:
         fit_variant = "png"
@@ -236,7 +246,7 @@ def process_image_fill(image_bytes, config=None):
             "packed_color": 0xFFFFFFFF,  # 白色不透明
             "is_background": True,
         }
-        elements.append(bg_element)
+        elements.insert(0, bg_element)
 
     x0, y0, x1, y1 = _mask_bbox(coverage_for_bbox)
     mask_width = max(1, x1 - x0)
@@ -253,6 +263,7 @@ def process_image_fill(image_bytes, config=None):
             "engine": "fill-shaper",
             "fill_variant": fit_variant,
             "enable_png_mode": enable_png_mode,
+            "source_is_png": source_is_png,
             "source_has_transparency": has_transparent_alpha,
             "output_has_transparency": transparent_output,
             "pixel_per_unit": round(1.0 / unit_scale, 6),

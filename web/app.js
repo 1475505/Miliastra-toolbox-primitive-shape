@@ -9,6 +9,7 @@
   const fillVariant = (data.config && data.config.fill_variant) || "mask";
   const outputHasTransparency = Boolean(data.config && data.config.output_has_transparency);
   const taskImageName = (window.TASK_IMAGE_NAME || "").trim();
+  const exportBaseName = (taskImageName.replace(/\.[^.]+$/, "").trim()) || "shaper_result";
   const imageWidth = data.image_size.width;
   const imageHeight = data.image_size.height;
   const pixelPerUnit = (data.config && data.config.pixel_per_unit) || (data.config && data.config.primitive_size) || 1;
@@ -39,6 +40,16 @@
     return data.elements.filter((element) => !isBackgroundElement(element));
   }
 
+  function renderOrderedElements() {
+    const background = [];
+    const foreground = [];
+    data.elements.forEach((element) => {
+      if (isBackgroundElement(element)) background.push(element);
+      else foreground.push(element);
+    });
+    return background.concat(foreground);
+  }
+
   function displayElementIndex(index) {
     let displayIndex = -1;
     for (let i = 0; i <= index; i += 1) {
@@ -48,7 +59,7 @@
   }
 
   function exportFileName(ext) {
-    return `${taskImageName || "shaper_result"}.${ext}`;
+    return `${exportBaseName}.${ext}`;
   }
 
   function loadImage(base64) {
@@ -216,7 +227,7 @@
       ctx.restore();
     }
 
-    data.elements.forEach(drawElement);
+    renderOrderedElements().forEach(drawElement);
     drawOriginCross();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
@@ -478,13 +489,13 @@
     $("btnExportJSON").addEventListener("click", () => {
       const originUnits = { x: origin.x / pixelPerUnit, y: -origin.y / pixelPerUnit };
       const payload = {
-        image_name: taskImageName || null,
-        group_name: taskImageName || null,
+        image_name: exportBaseName || null,
+        group_name: exportBaseName || null,
         origin: originUnits,
         image_size: data.image_size,
         config: window.TASK_CFG || data.config,
         mask: data.mask || null,
-        elements: data.elements.map((element, index) => ({
+        elements: renderOrderedElements().map((element, index) => ({
           id: element.id != null ? element.id : index,
           type: normalizeType(element.type),
           shape: element.shape,
