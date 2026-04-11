@@ -76,24 +76,15 @@ def _prepare_browser_image(image, preserve_alpha):
 
 
 def _extract_fill_image_and_mask(image, mask_threshold):
-    """将图片转为 BGR 并提取前景 mask。
-
-    对于带 alpha 通道的图片（BGRA），先混合白底得到 BGR 图像，
-    然后对混合后的 BGR 图像使用智能前景提取（fs.extract_mask），
-    这样非 PNG 模式下的处理与普通图片完全一致。
-    """
     if image.ndim == 2:
         image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         mask = fs.extract_mask(image_bgr) > 0
     elif image.shape[2] == 4:
-        # 先将 alpha 通道与白色混合，得到白底 BGR 图像
         alpha = image[:, :, 3].astype(np.float64) / 255.0
         image_bgr = image[:, :, :3].astype(np.float64)
         image_bgr = image_bgr * alpha[:, :, None] + 255.0 * (1.0 - alpha[:, :, None])
         image_bgr = np.clip(np.rint(image_bgr), 0, 255).astype(np.uint8)
-        # 对混合白底后的 BGR 图像做智能前景提取
-        # （与普通 BGR 图片使用相同策略，而非简单 alpha 阈值）
-        mask = fs.extract_mask(image_bgr) > 0
+        mask = image[:, :, 3] >= int(mask_threshold)
     else:
         image_bgr = image[:, :, :3].copy()
         mask = fs.extract_mask(image_bgr) > 0
@@ -153,7 +144,6 @@ def process_image_fill(image_bytes, config=None):
     transparent_output = has_transparent_alpha and enable_png_mode
 
     if transparent_output:
-        # ── PNG 模式：保留透明通道，直接用 alpha 作为拟合权重 ──
         fit_variant = "png"
         coverage_weights = image[:, :, 3].astype(np.float64) / 255.0
         mask = None
@@ -165,10 +155,6 @@ def process_image_fill(image_bytes, config=None):
         browser_image = _prepare_browser_image(image, preserve_alpha=True)
         fit_image = image
     else:
-        # ── 非 PNG 模式（默认行为）：alpha 与白色混合，显示白色背景 ──
-        # 对于 BGRA 图片：_extract_fill_image_and_mask 先混合白底得 BGR，
-        # 再用 fs.extract_mask 智能提取前景 mask（与普通 BGR 图片一致）
-        # 对于 BGR 图片：直接用 fs.extract_mask 智能提取前景 mask
         fit_variant = "mask"
         fit_image, mask = _extract_fill_image_and_mask(image, mask_threshold)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
