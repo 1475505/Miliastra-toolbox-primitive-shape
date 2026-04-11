@@ -26,6 +26,7 @@ def main() -> int:
         ROOT / "fill_shaper.py",
         ROOT / "final_shaper.py",
         ROOT / "test_gia_structure.py",
+        ROOT / "test_fill_pipeline.py",
         ROOT / "gia",
     ]
     ok = True

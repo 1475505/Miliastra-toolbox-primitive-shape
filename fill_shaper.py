@@ -36,7 +36,6 @@ class FillConfig:
     min_mask_coverage: float = 0.7
     spill_penalty: float = 12000.0
     random_seed: int | None = None
-    output_alpha: float = 1.0  # Default 100% opacity (fully opaque)
 
 
 def _empty_pixels():
@@ -263,8 +262,9 @@ class Triangle(Shape):
         return ys[inside].astype(np.int32), xs[inside].astype(np.int32), aa[inside].astype(np.float64)
 
 
-def _rgb_to_hex(color):
-    rgb = np.clip(np.rint(color), 0, 255).astype(np.uint8)
+def _bgr_to_hex(color):
+    bgr = np.clip(np.rint(color), 0, 255).astype(np.uint8)
+    rgb = bgr[::-1]
     return "#" + "".join(f"{channel:02x}" for channel in rgb.tolist())
 
 
@@ -275,6 +275,10 @@ def _hex_to_rgb(hex_color):
     if len(value) != 6:
         raise ValueError(f"invalid color: {hex_color}")
     return np.array([int(value[i:i + 2], 16) for i in (0, 2, 4)], dtype=np.float64)
+
+
+def _hex_to_bgr(hex_color):
+    return _hex_to_rgb(hex_color)[::-1]
 
 
 def _pack_color(color_hex, alpha):
@@ -301,6 +305,31 @@ def _prepare_target(target_img, mask):
     canvas = np.full_like(target, 255.0, dtype=np.float64)
     canvas[~mask] = 255.0
     return target, canvas
+
+
+def _resolve_coverage_weights(target_img, mask=None, coverage_weights=None):
+    if coverage_weights is not None:
+        weights = np.asarray(coverage_weights, dtype=np.float64)
+    elif mask is not None:
+        weights = np.asarray(mask, dtype=np.float64)
+    elif target_img.ndim == 3 and target_img.shape[2] == 4:
+        weights = target_img[:, :, 3].astype(np.float64) / 255.0
+    else:
+        weights = np.ones(target_img.shape[:2], dtype=np.float64)
+
+    if weights.shape != target_img.shape[:2]:
+        raise ValueError("coverage_weights shape mismatch")
+    return np.clip(weights, 0.0, 1.0)
+
+
+def _shape_opacity(shape, coverage_weights, width, height):
+    ys, xs, alphas = shape.rasterize(width, height)
+    if len(ys) == 0:
+        return 0.0
+    total = float(np.sum(alphas))
+    if total <= 1e-8:
+        return 0.0
+    return float(np.sum(alphas * coverage_weights[ys, xs]) / total)
 
 
 def _build_alpha_candidates(cfg):
@@ -361,7 +390,7 @@ def _shape_fixed_color(shape, fixed_color_map):
     return fixed_color_map.get(shape.shape_type)
 
 
-def compute_color(target, canvas, mask, shape, alpha, fixed_color=None):
+def compute_color(target, canvas, coverage_weights, shape, alpha, fixed_color=None):
     ys, xs, alphas = shape.rasterize(target.shape[1], target.shape[0])
     if len(ys) == 0:
         return None
@@ -369,52 +398,57 @@ def compute_color(target, canvas, mask, shape, alpha, fixed_color=None):
     if fixed_color is not None:
         return np.array(fixed_color, dtype=np.float64)
 
-    inside = mask[ys, xs]
-    if not np.any(inside):
+    shape_alpha = alpha * alphas
+    pixel_weights = coverage_weights[ys, xs]
+    valid = (shape_alpha > 1e-8) & (pixel_weights > 1e-8)
+    if not np.any(valid):
         return None
 
-    weighted_alpha = alpha * alphas[inside]
-    if np.sum(weighted_alpha) <= 1e-8:
-        return None
-
-    base = canvas[ys[inside], xs[inside]]
-    target_pixels = target[ys[inside], xs[inside]]
-    weighted_sq = np.sum(weighted_alpha ** 2)
+    active_alpha = shape_alpha[valid]
+    active_weights = pixel_weights[valid]
+    base = canvas[ys[valid], xs[valid]]
+    target_pixels = target[ys[valid], xs[valid]]
+    weighted_sq = np.sum((active_alpha ** 2) * active_weights)
     if weighted_sq <= 1e-8:
         return None
 
     solved = np.sum(
-        weighted_alpha[:, None] * (target_pixels - base * (1.0 - weighted_alpha[:, None])),
+        (active_alpha * active_weights)[:, None] * (target_pixels - base * (1.0 - active_alpha[:, None])),
         axis=0,
     ) / weighted_sq
     color = solved
     return np.clip(color, 0, 255)
 
 
-def compute_score(target, canvas, mask, shape, color, alpha, cfg):
+def compute_score(target, canvas, coverage_weights, shape, color, alpha, cfg):
     ys, xs, alphas = shape.rasterize(target.shape[1], target.shape[0])
     if len(ys) == 0 or color is None:
         return float("inf"), None
 
-    inside = mask[ys, xs]
-    if not np.any(inside):
+    pixel_weights = coverage_weights[ys, xs]
+    weighted = alpha * alphas
+    if np.sum(weighted) <= 1e-8:
         return float("inf"), None
 
-    weighted = alpha * alphas
-    coverage = float(np.sum(weighted[inside]) / np.maximum(np.sum(weighted), 1e-8))
+    coverage = float(np.sum(weighted * pixel_weights) / np.maximum(np.sum(weighted), 1e-8))
     if coverage < cfg.min_mask_coverage:
         return float("inf"), None
 
-    inside_ys = ys[inside]
-    inside_xs = xs[inside]
-    inside_alpha = weighted[inside]
+    active = (pixel_weights > 1e-8) & (weighted > 1e-8)
+    if not np.any(active):
+        return float("inf"), None
+
+    inside_ys = ys[active]
+    inside_xs = xs[active]
+    inside_alpha = weighted[active]
+    inside_weights = pixel_weights[active]
     old_pixels = canvas[inside_ys, inside_xs]
     new_pixels = old_pixels * (1.0 - inside_alpha[:, None]) + color * inside_alpha[:, None]
     old_error = target[inside_ys, inside_xs] - old_pixels
     new_error = target[inside_ys, inside_xs] - new_pixels
-    delta = float(np.sum(new_error ** 2) - np.sum(old_error ** 2))
+    delta = float(np.sum((new_error ** 2 - old_error ** 2) * inside_weights[:, None]))
 
-    outside_alpha = weighted[~inside]
+    outside_alpha = weighted * (1.0 - pixel_weights)
     if outside_alpha.size:
         delta += float(np.sum(outside_alpha) * cfg.spill_penalty)
 
@@ -427,17 +461,17 @@ def compute_score(target, canvas, mask, shape, color, alpha, cfg):
     return delta, payload
 
 
-def hill_climb(target, canvas, mask, shape, color, alpha, cfg, rng, fixed_color=None):
+def hill_climb(target, canvas, coverage_weights, shape, color, alpha, cfg, rng, fixed_color=None):
     best_shape = shape
     best_color = color
-    best_score, best_payload = compute_score(target, canvas, mask, shape, color, alpha, cfg)
+    best_score, best_payload = compute_score(target, canvas, coverage_weights, shape, color, alpha, cfg)
     width = target.shape[1]
     height = target.shape[0]
 
     for _ in range(max(1, int(cfg.hill_climb_iter))):
         candidate_shape = best_shape.mutate(rng, width, height, cfg)
-        candidate_color = compute_color(target, canvas, mask, candidate_shape, alpha, fixed_color=fixed_color)
-        candidate_score, candidate_payload = compute_score(target, canvas, mask, candidate_shape, candidate_color, alpha, cfg)
+        candidate_color = compute_color(target, canvas, coverage_weights, candidate_shape, alpha, fixed_color=fixed_color)
+        candidate_score, candidate_payload = compute_score(target, canvas, coverage_weights, candidate_shape, candidate_color, alpha, cfg)
         if candidate_score < best_score:
             best_shape = candidate_shape
             best_color = candidate_color
@@ -493,18 +527,7 @@ def _serialize_shape(shape, color_hex, alpha, packed_color):
     }
 
 
-def _split_alpha_layers(alpha, layer_alpha):
-    layer_alpha = float(np.clip(layer_alpha, 0.01, 0.99))
-    alpha = float(np.clip(alpha, 0.0, 1.0))
-    if alpha <= 1e-6:
-        return 0
-    if alpha <= layer_alpha + 1e-6:
-        return 1
-    remaining = max(1e-6, 1.0 - alpha)
-    return max(1, int(math.ceil(math.log(remaining) / math.log(1.0 - layer_alpha))))
-
-
-def fit_primitives(target_img, config=None, progress_callback=None, mask=None, fixed_color_map=None):
+def fit_primitives(target_img, config=None, progress_callback=None, mask=None, fixed_color_map=None, coverage_weights=None, output_alpha_weights=None):
     """
     Fit an image using a sequence of simple primitives.
 
@@ -514,6 +537,8 @@ def fit_primitives(target_img, config=None, progress_callback=None, mask=None, f
         progress_callback: optional callback(step, total, message).
         mask: optional boolean foreground mask.
         fixed_color_map: optional shape-type -> RGB override.
+        coverage_weights: optional float map in [0, 1] for soft foreground weighting.
+        output_alpha_weights: optional float map in [0, 1] used to scale exported primitive alpha.
 
     Returns:
         list[dict]
@@ -523,15 +548,9 @@ def fit_primitives(target_img, config=None, progress_callback=None, mask=None, f
     elif isinstance(config, dict):
         config = FillConfig(**config)
 
-    if mask is None:
-        if target_img.ndim == 3 and target_img.shape[2] == 4:
-            mask = target_img[:, :, 3] > 127
-        else:
-            mask = np.ones(target_img.shape[:2], dtype=bool)
-    else:
-        mask = mask.astype(bool)
-
-    target, canvas = _prepare_target(target_img, mask)
+    coverage = _resolve_coverage_weights(target_img, mask=mask, coverage_weights=coverage_weights)
+    render_mask = coverage > 1e-6
+    target, canvas = _prepare_target(target_img, render_mask)
     alpha_candidates = _build_alpha_candidates(config)
     rng = np.random.default_rng(config.random_seed)
     started = time.time()
@@ -542,8 +561,8 @@ def fit_primitives(target_img, config=None, progress_callback=None, mask=None, f
             progress_callback(step, int(config.num_primitives), f"拟合图元 {step + 1}/{config.num_primitives}")
 
         error_map = np.sum((target - canvas) ** 2, axis=2)
-        error_map[~mask] = 0.0
-        focus = _sample_focus(error_map, mask, rng)
+        error_map[~render_mask] = 0.0
+        focus = _sample_focus(error_map, render_mask, rng)
 
         best_shape = None
         best_color = None
@@ -555,8 +574,8 @@ def fit_primitives(target_img, config=None, progress_callback=None, mask=None, f
             candidate_shape = random_shape(rng, target.shape[1], target.shape[0], config, focus=focus)
             fixed_color = _shape_fixed_color(candidate_shape, fixed_color_map)
             for alpha in alpha_candidates:
-                candidate_color = compute_color(target, canvas, mask, candidate_shape, float(alpha), fixed_color=fixed_color)
-                candidate_score, candidate_payload = compute_score(target, canvas, mask, candidate_shape, candidate_color, float(alpha), config)
+                candidate_color = compute_color(target, canvas, coverage, candidate_shape, float(alpha), fixed_color=fixed_color)
+                candidate_score, candidate_payload = compute_score(target, canvas, coverage, candidate_shape, candidate_color, float(alpha), config)
                 if candidate_score < best_score:
                     best_shape = candidate_shape
                     best_color = candidate_color
@@ -571,7 +590,7 @@ def fit_primitives(target_img, config=None, progress_callback=None, mask=None, f
         best_shape, best_color, best_score, best_payload = hill_climb(
             target,
             canvas,
-            mask,
+            coverage,
             best_shape,
             best_color,
             best_alpha,
@@ -585,10 +604,16 @@ def fit_primitives(target_img, config=None, progress_callback=None, mask=None, f
 
         _apply_payload(canvas, best_color, best_payload)
 
-        color_hex = _rgb_to_hex(best_color)
-        packed_color = _pack_color(color_hex, best_alpha)
+        color_hex = _bgr_to_hex(best_color)
+        export_alpha = float(best_alpha)
+        if output_alpha_weights is not None:
+            shape_opacity = _shape_opacity(best_shape, output_alpha_weights, target.shape[1], target.shape[0])
+            if shape_opacity <= 0.05:
+                export_alpha = 0.0
+        export_alpha = float(np.clip(export_alpha, 0.0, 1.0))
+        packed_color = _pack_color(color_hex, export_alpha)
 
-        results.append(_serialize_shape(best_shape, color_hex, best_alpha, packed_color))
+        results.append(_serialize_shape(best_shape, color_hex, export_alpha, packed_color))
 
     if progress_callback:
         progress_callback(
@@ -600,16 +625,10 @@ def fit_primitives(target_img, config=None, progress_callback=None, mask=None, f
     return results
 
 
-def render_results(target_img, results, mask=None):
-    if mask is None:
-        if target_img.ndim == 3 and target_img.shape[2] == 4:
-            mask = target_img[:, :, 3] > 127
-        else:
-            mask = np.ones(target_img.shape[:2], dtype=bool)
-    else:
-        mask = mask.astype(bool)
-
-    target, canvas = _prepare_target(target_img, mask)
+def render_results(target_img, results, mask=None, coverage_weights=None, output_alpha_map=None):
+    coverage = _resolve_coverage_weights(target_img, mask=mask, coverage_weights=coverage_weights)
+    render_mask = coverage > 1e-6
+    target, canvas = _prepare_target(target_img, render_mask)
     _ = target
 
     for result in results:
@@ -620,11 +639,11 @@ def render_results(target_img, results, mask=None):
         else:
             shape = Rect(result["cx"], result["cy"], result["hw"], result["hh"], result.get("angle", 0.0))
 
-        color = _hex_to_rgb(result["color"]) if isinstance(result.get("color"), str) else np.array(result["color"], dtype=np.float64)
+        color = _hex_to_bgr(result["color"]) if isinstance(result.get("color"), str) else np.array(result["color"], dtype=np.float64)
         _, payload = compute_score(
             target=np.zeros_like(canvas),
             canvas=canvas,
-            mask=mask,
+            coverage_weights=np.ones_like(coverage, dtype=np.float64),
             shape=shape,
             color=color,
             alpha=float(result.get("alpha", 1.0)),
@@ -632,8 +651,17 @@ def render_results(target_img, results, mask=None):
         )
         _apply_payload(canvas, color, payload)
 
-    canvas[~mask] = 255.0
-    return np.clip(canvas, 0, 255).astype(np.uint8)
+    canvas = np.clip(canvas, 0, 255).astype(np.uint8)
+    rgba = np.zeros((*canvas.shape[:2], 4), dtype=np.uint8)
+    rgba[:, :, :3] = canvas
+    if output_alpha_map is None:
+        rgba[:, :, 3] = (render_mask * 255).astype(np.uint8)
+    else:
+        alpha_map = np.clip(np.asarray(output_alpha_map, dtype=np.float64), 0.0, 1.0)
+        if alpha_map.shape != canvas.shape[:2]:
+            raise ValueError("output_alpha_map shape mismatch")
+        rgba[:, :, 3] = np.rint(alpha_map * 255.0).astype(np.uint8)
+    return rgba
 
 
 def results_to_elements(results, unit_scale, img_center, primitives_config=None, output_alpha=None):
@@ -677,10 +705,10 @@ def results_to_elements(results, unit_scale, img_center, primitives_config=None,
                 "height": round(2.0 * float(result["hh"]) * unit_scale, 4),
             }
 
-        color_hex = result["color"] if isinstance(result.get("color"), str) else _rgb_to_hex(result.get("color", [255, 255, 255]))
-        # Apply output_alpha override if specified (0.0-1.0)
+        color_hex = result["color"] if isinstance(result.get("color"), str) else _bgr_to_hex(result.get("color", [255, 255, 255]))
+        # Preserve fitted alpha layering and only scale it when the user requests a global opacity change.
         if output_alpha is not None:
-            alpha = float(output_alpha)
+            alpha = float(np.clip(float(result.get("alpha", 1.0)) * float(output_alpha), 0.0, 1.0))
         else:
             alpha = float(result.get("alpha", 1.0))
         image_asset_ref = int(
@@ -689,7 +717,7 @@ def results_to_elements(results, unit_scale, img_center, primitives_config=None,
             or result.get("image_asset_ref")
             or 100002
         )
-        packed_color = int(result.get("packed_color") or _pack_color(color_hex, alpha))
+        packed_color = _pack_color(color_hex, alpha)
 
         element = {
             "id": index,

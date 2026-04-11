@@ -17,15 +17,10 @@ from shapely.geometry import Polygon
 
 import fill_shaper
 import final_shaper as fs
-import primitive_backend
 
 
 def _encode_png_base64(image):
-    # Handle RGBA images to preserve alpha channel
-    if image.ndim == 3 and image.shape[2] == 4:
-        ok, buf = cv2.imencode(".png", image)
-    else:
-        ok, buf = cv2.imencode(".png", image)
+    ok, buf = cv2.imencode(".png", image)
     if not ok:
         raise ValueError("failed to encode png")
     return base64.b64encode(buf).decode("utf-8")
@@ -55,6 +50,57 @@ def _resolve_origin(config, width, height, prefix=""):
     return (width / 2.0, height / 2.0)
 
 
+def _has_transparent_alpha(image):
+    return (
+        image.ndim == 3
+        and image.shape[2] == 4
+        and bool(np.any(image[:, :, 3] < 255))
+    )
+
+
+def _flatten_to_bgr(image, background=255.0):
+    if image.ndim == 2:
+        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    if image.shape[2] == 4:
+        alpha = image[:, :, 3:4].astype(np.float64) / 255.0
+        base = image[:, :, :3].astype(np.float64)
+        flattened = base * alpha + float(background) * (1.0 - alpha)
+        return np.clip(np.rint(flattened), 0, 255).astype(np.uint8)
+    return image[:, :, :3].copy()
+
+
+def _prepare_browser_image(image, preserve_alpha):
+    if preserve_alpha and _has_transparent_alpha(image):
+        return image.copy()
+    return _flatten_to_bgr(image)
+
+
+def _mask_bbox(mask):
+    ys, xs = np.where(mask)
+    if ys.size == 0:
+        height, width = mask.shape[:2]
+        return 0, 0, width, height
+    x0 = int(xs.min())
+    y0 = int(ys.min())
+    x1 = int(xs.max()) + 1
+    y1 = int(ys.max()) + 1
+    return x0, y0, x1, y1
+
+
+def _fill_allowed_types(config):
+    shape_map = {
+        "circle": fill_shaper.ShapeType.CIRCLE,
+        "rect": fill_shaper.ShapeType.RECT,
+        "triangle": fill_shaper.ShapeType.TRIANGLE,
+    }
+    allowed = []
+    for shape_name in config.get("allowed_shapes", ["circle"]):
+        mapped = shape_map.get(str(shape_name).strip().lower())
+        if mapped and mapped not in allowed:
+            allowed.append(mapped)
+    return allowed or [fill_shaper.ShapeType.CIRCLE]
+
+
 def process_image(image_bytes, config=None):
     if config is None:
         config = {}
@@ -73,24 +119,72 @@ def process_image_fill(image_bytes, config=None):
     image = _decode_image(image_bytes)
     height, width = image.shape[:2]
     image_center = _resolve_origin(config, width, height)
-
     unit_scale = float(max(0.1, config.get("image_scale", 1.0)))
-
     output_alpha = float(config.get("output_alpha", 1.0))
-    primitive_fit = primitive_backend.fit_image_with_primitive(
+    allowed_types = _fill_allowed_types(config)
+    enable_png_mode = bool(config.get("enable_png_mode", False))
+    has_transparent_alpha = _has_transparent_alpha(image)
+    flattened_image = _flatten_to_bgr(image)
+    transparent_output = has_transparent_alpha and enable_png_mode
+
+    if transparent_output:
+        fit_variant = "png"
+        coverage_weights = image[:, :, 3].astype(np.float64) / 255.0
+        mask = None
+        mask_enabled = False
+        output_alpha_weights = coverage_weights
+        coverage_for_bbox = coverage_weights > 1e-6
+        min_mask_coverage = 0.12
+        preview_alpha_map = coverage_weights
+        browser_image = _prepare_browser_image(image, preserve_alpha=True)
+    else:
+        fit_variant = "mask"
+        if image.ndim == 3 and image.shape[2] == 4:
+            mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
+            mask = image[:, :, 3] >= mask_threshold
+        else:
+            mask = fs.extract_mask(flattened_image) > 0
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        cleaned = cv2.morphologyEx(mask.astype(np.uint8) * 255, cv2.MORPH_CLOSE, kernel)
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
+        mask = cleaned > 0
+        coverage_weights = mask.astype(np.float64)
+        mask_enabled = True
+        output_alpha_weights = None
+        coverage_for_bbox = mask
+        min_mask_coverage = 0.55
+        preview_alpha_map = np.ones_like(coverage_weights, dtype=np.float64)
+        browser_image = flattened_image
+
+    num_primitives = int(config.get("num_primitives", 400))
+    active_area = float(np.sum(coverage_weights))
+    approx_size = math.sqrt(max(active_area, 1.0) / max(num_primitives, 1))
+    fit_config = {
+        "num_primitives": num_primitives,
+        "allowed_types": allowed_types,
+        "candidates": 24,
+        "hill_climb_iter": 48,
+        "min_size": max(2.0, approx_size * 0.28),
+        "max_size": max(12.0, approx_size * 2.6),
+        "min_mask_coverage": min_mask_coverage,
+        "spill_penalty": 10000.0,
+    }
+
+    results = fill_shaper.fit_primitives(
         image,
-        {
-            "num_primitives": int(config.get("num_primitives", 400)),
-            "allowed_shapes": config.get("allowed_shapes", ["circle"]),
-            "mask_threshold": int(max(1, min(254, config.get("mask_threshold", 127)))),
-            "detail_scale": float(max(0.25, config.get("detail_scale", 1.0))),
-        },
+        config=fit_config,
+        mask=mask,
+        coverage_weights=coverage_weights,
+        output_alpha_weights=output_alpha_weights,
     )
-    results = primitive_fit["results"]
-    preview = primitive_fit["preview"]
-    image_bgr = primitive_fit["image_bgr"]
-    image_rgba = primitive_fit.get("image_rgba", image_bgr)
-    mask = primitive_fit["mask"]
+    preview = fill_shaper.render_results(
+        image,
+        results,
+        mask=mask,
+        coverage_weights=coverage_weights,
+        output_alpha_map=preview_alpha_map,
+    )
+
     elements = fill_shaper.results_to_elements(
         results,
         unit_scale,
@@ -99,13 +193,9 @@ def process_image_fill(image_bytes, config=None):
         output_alpha=output_alpha,
     )
 
-    bbox = primitive_fit["bbox"]
-    x0 = bbox["x"]
-    y0 = bbox["y"]
-    mask_width = bbox["width"]
-    mask_height = bbox["height"]
-    x1 = x0 + mask_width
-    y1 = y0 + mask_height
+    x0, y0, x1, y1 = _mask_bbox(coverage_for_bbox)
+    mask_width = max(1, x1 - x0)
+    mask_height = max(1, y1 - y0)
     mask_center_x = (x0 + x1) / 2.0
     mask_center_y = (y0 + y1) / 2.0
 
@@ -115,19 +205,22 @@ def process_image_fill(image_bytes, config=None):
         "image_size": {"width": width, "height": height},
         "config": {
             "mode": "fill",
-            "engine": "primitive-official",
+            "engine": "fill-shaper",
+            "fill_variant": fit_variant,
+            "enable_png_mode": enable_png_mode,
+            "source_has_transparency": has_transparent_alpha,
+            "output_has_transparency": transparent_output,
             "pixel_per_unit": round(1.0 / unit_scale, 6),
             "unit_scale": unit_scale,
-            "num_primitives": int(config.get("num_primitives", 400)),
-            "fit_size": primitive_fit["fit_size"],
+            "num_primitives": num_primitives,
             "mask_threshold": int(max(1, min(254, config.get("mask_threshold", 127)))),
             "image_scale": unit_scale,
             "allowed_shapes": config.get("allowed_shapes", ["circle"]),
         },
         "mask": {
-            "enabled": True,
+            "enabled": mask_enabled,
             "shape_type": "rectangle",
-            "coverage": round(float(np.mean(mask)), 4),
+            "coverage": round(float(np.mean(coverage_for_bbox)), 4),
             "center": {
                 "x": round(mask_center_x * unit_scale, 4),
                 "y": round(-mask_center_y * unit_scale, 4),
@@ -145,9 +238,9 @@ def process_image_fill(image_bytes, config=None):
         },
         "elements_count": len(elements),
         "elements": elements,
-        "image_base64": _encode_png_base64(image_rgba),
+        "image_base64": _encode_png_base64(browser_image),
         "preview_base64": _encode_png_base64(preview),
-        "mask_base64": _encode_png_base64(mask.astype(np.uint8) * 255),
+        "mask_base64": _encode_png_base64((coverage_for_bbox.astype(np.uint8) * 255)) if mask_enabled else None,
         "elapsed_seconds": round(time.time() - started, 2),
     }
 
@@ -175,19 +268,28 @@ def process_image_outline(image_bytes, config=None):
 
     allowed_types = None
     type_colors = {}
-    if "primitives" in config and config["primitives"]:
+    primitive_presets = {}  # Store full primitive config for later use
+    # Support both primitives_json (legacy) and allowed_shapes (new)
+    shape_list = config.get("primitives", [])
+    if not shape_list and "allowed_shapes" in config:
+        shape_list = [{"shape": s, "color": "#ffffff"} for s in config["allowed_shapes"]]
+    if shape_list:
         picked = set()
-        for primitive in config["primitives"]:
+        for primitive in shape_list:
             shape = primitive.get("shape")
             color = primitive.get("color")
             if shape == "circle":
                 picked.add(fs.ShapeType.ELLIPSE)
                 if color:
                     type_colors[fs.ShapeType.ELLIPSE] = color
+                # Store full preset config (image_asset_ref, type_id, etc.)
+                primitive_presets[fs.ShapeType.ELLIPSE] = primitive
             elif shape == "rect":
                 picked.add(fs.ShapeType.RECTANGLE)
                 if color:
                     type_colors[fs.ShapeType.RECTANGLE] = color
+                # Store full preset config (image_asset_ref, type_id, etc.)
+                primitive_presets[fs.ShapeType.RECTANGLE] = primitive
         allowed_types = list(picked) if picked else []
 
     fitting_cfg = fs.FittingConfig(
@@ -275,6 +377,40 @@ def process_image_outline(image_bytes, config=None):
             "y": round(cy - origin_units["y"], 4),
         }
         item["rotation"] = {"x": 0, "y": 0, "z": round(rot_z, 4)}
+
+        # Convert ShapeType enum to string for consistency with fill mode
+        shape_type = item.get("type")
+        if shape_type == fs.ShapeType.ELLIPSE:
+            item["type"] = "ellipse"
+            item["shape"] = "circle"
+            preset = primitive_presets.get(fs.ShapeType.ELLIPSE, {})
+        elif shape_type == fs.ShapeType.RECTANGLE:
+            item["type"] = "rectangle"
+            item["shape"] = "rect"
+            preset = primitive_presets.get(fs.ShapeType.RECTANGLE, {})
+        else:
+            preset = {}
+
+        # Apply primitive preset config (image_asset_ref, type_id, etc.)
+        if preset:
+            if preset.get("image_asset_ref"):
+                item["image_asset_ref"] = int(preset["image_asset_ref"])
+            type_id = preset.get("type_id")
+            element_type_id = preset.get("element_type_id")
+            if type_id is not None:
+                item["type_id"] = int(type_id)
+            if element_type_id is not None:
+                item["element_type_id"] = int(element_type_id)
+            elif type_id is not None:
+                item["element_type_id"] = int(type_id)
+            if preset.get("rot_z") is not None:
+                item["rotation"]["z"] = round(float(item["rotation"]["z"]) + float(preset["rot_z"]), 4)
+            if preset.get("rot_y_add") is not None:
+                item["rotation"]["y"] = float(preset["rot_y_add"])
+                item["rot_y_add"] = float(preset["rot_y_add"])
+            if preset.get("name"):
+                item["name"] = str(preset["name"])
+
         exported_elements.append(item)
 
     return {

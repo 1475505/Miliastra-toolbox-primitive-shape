@@ -322,7 +322,7 @@ def parse_primitive_svg(svg_path, scale_factor=1.0, offset_x=0.0, offset_y=0.0):
     return results
 
 
-def _render_preview_on_canvas(preview_crop, full_width, full_height, bbox, full_mask):
+def _render_preview_on_canvas(preview_crop, full_width, full_height, bbox, full_mask, has_alpha_input=False):
     x0, y0, x1, y1 = bbox
     canvas = np.zeros((full_height, full_width, 4), dtype=np.uint8)
     crop_h = max(y1 - y0, 1)
@@ -346,7 +346,21 @@ def _render_preview_on_canvas(preview_crop, full_width, full_height, bbox, full_
     
     # Combine preview with mask alpha
     canvas[y0:y1, x0:x1, :3] = resized[:, :, :3]
-    canvas[y0:y1, x0:x1, 3] = cv2.bitwise_and(resized[:, :, 3], resized_mask)
+    
+    if has_alpha_input:
+        # For PNG input: transparent background outside mask
+        canvas[y0:y1, x0:x1, 3] = cv2.bitwise_and(resized[:, :, 3], resized_mask)
+    else:
+        # For JPG input: white background outside mask
+        # Keep alpha=255 for foreground, alpha=255 for background too (opaque white)
+        canvas[y0:y1, x0:x1, 3] = 255
+        # Fill background with white
+        bg_mask = (resized_mask == 0)
+        for c in range(3):
+            channel = canvas[y0:y1, x0:x1, c]
+            channel[bg_mask] = 255
+            canvas[y0:y1, x0:x1, c] = channel
+    
     return canvas
 
 
@@ -410,7 +424,9 @@ def fit_image_with_primitive(image, config=None):
         if preview_crop is None:
             raise ValueError("primitive 输出 PNG 读取失败")
 
-    preview = _render_preview_on_canvas(preview_crop, full_width, full_height, (x0, y0, x1, y1), mask)
+    # Determine if input has alpha channel (PNG with transparency)
+    has_alpha_input = (image.ndim == 3 and image.shape[2] == 4)
+    preview = _render_preview_on_canvas(preview_crop, full_width, full_height, (x0, y0, x1, y1), mask, has_alpha_input)
     return {
         "results": results,
         "preview": preview,

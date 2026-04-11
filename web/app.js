@@ -6,6 +6,8 @@
   if (!data) return;
 
   const mode = data.mode || "fill";
+  const fillVariant = (data.config && data.config.fill_variant) || "mask";
+  const outputHasTransparency = Boolean(data.config && data.config.output_has_transparency);
   const imageWidth = data.image_size.width;
   const imageHeight = data.image_size.height;
   const pixelPerUnit = (data.config && data.config.pixel_per_unit) || (data.config && data.config.primitive_size) || 1;
@@ -26,7 +28,6 @@
   const assets = {
     base: null,
     mask: null,
-    preview: null,
   };
 
   function loadImage(base64) {
@@ -62,6 +63,20 @@
     return `rgba(255, 204, 0, ${alphaOverride})`;
   }
 
+  function normalizeType(type) {
+    if (type === "circle") return "ellipse";
+    if (type === "rect") return "rectangle";
+    return type;
+  }
+
+  function shapeName(type) {
+    const normalized = normalizeType(type);
+    if (normalized === "ellipse") return "圆形";
+    if (normalized === "rectangle") return "矩形";
+    if (normalized === "triangle") return "三角形";
+    return normalized || "未知";
+  }
+
   function imagePointToElementCenter(element) {
     return {
       x: element.center.x * pixelPerUnit,
@@ -75,14 +90,16 @@
   }
 
   function drawElementPath(element) {
-    if (element.type === "ellipse") {
+    const type = normalizeType(element.type);
+
+    if (type === "ellipse") {
       const rx = (element.size.rx || (element.size.width || 0) / 2) * pixelPerUnit;
       const ry = (element.size.ry || (element.size.height || 0) / 2) * pixelPerUnit;
       ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
       return;
     }
 
-    if (element.type === "triangle") {
+    if (type === "triangle") {
       const width = (element.size.width || 0) * pixelPerUnit;
       const triHeight = (element.size.height || 0) * pixelPerUnit || (width * Math.sqrt(3) / 2);
       const topY = -2 * triHeight / 3;
@@ -162,6 +179,10 @@
 
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.clearRect(0, 0, imageWidth, imageHeight);
+    if (!outputHasTransparency) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, imageWidth, imageHeight);
+    }
 
     if ($("showImage").checked && assets.base) {
       ctx.drawImage(assets.base, 0, 0, imageWidth, imageHeight);
@@ -188,6 +209,7 @@
   }
 
   function pointInElement(element, x, y) {
+    const type = normalizeType(element.type);
     const center = imagePointToElementCenter(element);
     const angle = -elementRotationRad(element);
     const dx0 = x - center.x;
@@ -195,14 +217,14 @@
     const dx = dx0 * Math.cos(angle) - dy0 * Math.sin(angle);
     const dy = dx0 * Math.sin(angle) + dy0 * Math.cos(angle);
 
-    if (element.type === "ellipse") {
+    if (type === "ellipse") {
       const rx = (element.size.rx || (element.size.width || 0) / 2) * pixelPerUnit;
       const ry = (element.size.ry || (element.size.height || 0) / 2) * pixelPerUnit;
       if (rx <= 0 || ry <= 0) return false;
       return (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1;
     }
 
-    if (element.type === "triangle") {
+    if (type === "triangle") {
       const width = (element.size.width || 0) * pixelPerUnit;
       const triHeight = (element.size.height || 0) * pixelPerUnit || (width * Math.sqrt(3) / 2);
       const vertices = [
@@ -257,12 +279,13 @@
 
     const relative = relativePosition(element);
     const rotation = element.rotation ? Number(element.rotation.z || 0) : 0;
+    const normalizedType = normalizeType(element.type);
 
     $("infoId").textContent = element.id != null ? element.id : index;
-    $("infoType").textContent = element.type;
+    $("infoType").textContent = shapeName(element.type);
     $("infoCenter").textContent = `(${element.center.x.toFixed(2)}, ${element.center.y.toFixed(2)})`;
     $("infoRelative").textContent = `(${relative.x.toFixed(2)}, ${relative.y.toFixed(2)})`;
-    if (element.type === "ellipse") {
+    if (normalizedType === "ellipse") {
       $("infoSize").textContent = `rx=${Number(element.size.rx || 0).toFixed(2)} ry=${Number(element.size.ry || 0).toFixed(2)}`;
     } else {
       $("infoSize").textContent = `${Number(element.size.width || 0).toFixed(2)} × ${Number(element.size.height || 0).toFixed(2)}`;
@@ -278,9 +301,15 @@
     URL.revokeObjectURL(anchor.href);
   }
 
+  function downloadBase64(base64, name) {
+    fetch("data:image/png;base64," + base64)
+      .then((response) => response.blob())
+      .then((blob) => downloadBlob(blob, name));
+  }
+
   function updateStats() {
-    const ellipseCount = data.elements.filter((element) => element.type === "ellipse").length;
-    const triangleCount = data.elements.filter((element) => element.type === "triangle").length;
+    const ellipseCount = data.elements.filter((element) => normalizeType(element.type) === "ellipse").length;
+    const triangleCount = data.elements.filter((element) => normalizeType(element.type) === "triangle").length;
     const rectCount = data.elements.length - ellipseCount - triangleCount;
 
     if ($("modeLabel")) $("modeLabel").textContent = mode === "fill" ? "填充拟合" : "轮廓描边";
@@ -303,20 +332,33 @@
     if ($("originalThumb") && data.image_base64) $("originalThumb").src = "data:image/png;base64," + data.image_base64;
   }
 
+  function applyVariantUi() {
+    const modeText = mode === "fill"
+      ? (fillVariant === "png" ? "PNG 填充" : "填充拟合")
+      : "轮廓描边";
+    if ($("modeLabel")) $("modeLabel").textContent = modeText;
+    if ($("statMode")) $("statMode").textContent = modeText;
+    if ($("showMask") && $("showMask").parentElement) {
+      const hasMask = Boolean(data.mask_base64);
+      if (!hasMask) $("showMask").checked = false;
+      $("showMask").disabled = !hasMask;
+      $("showMask").parentElement.style.opacity = hasMask ? "1" : "0.45";
+    }
+  }
+
   async function init() {
     originInputX.value = origin.x;
     originInputY.value = origin.y;
     updateStats();
+    applyVariantUi();
     clearDetail();
 
-    const [base, mask, preview] = await Promise.all([
+    const [base, mask] = await Promise.all([
       loadImage(data.image_base64),
       loadImage(data.mask_base64),
-      loadImage(data.preview_base64),
     ]);
     assets.base = base;
     assets.mask = mask;
-    assets.preview = preview;
     render();
   }
 
@@ -345,10 +387,10 @@
       const rotation = element.rotation ? Number(element.rotation.z || 0) : 0;
       tooltip.hidden = false;
       tooltip.innerHTML = [
-        `<b>#${hoveredIndex}</b> ${element.type}`,
+        `<b>#${hoveredIndex}</b> ${shapeName(element.type)}`,
         `中心: (${element.center.x.toFixed(2)}, ${element.center.y.toFixed(2)})`,
         `相对原点: (${relative.x.toFixed(2)}, ${relative.y.toFixed(2)})`,
-        element.type === "ellipse"
+        normalizeType(element.type) === "ellipse"
           ? `尺寸: rx=${Number(element.size.rx || 0).toFixed(2)} ry=${Number(element.size.ry || 0).toFixed(2)}`
           : `尺寸: ${Number(element.size.width || 0).toFixed(2)} × ${Number(element.size.height || 0).toFixed(2)}`,
         `旋转: ${rotation.toFixed(1)}°`,
@@ -419,7 +461,8 @@
         mask: data.mask || null,
         elements: data.elements.map((element, index) => ({
           id: element.id != null ? element.id : index,
-          type: element.type,
+          type: normalizeType(element.type),
+          shape: element.shape,
           center: element.center,
           relative: {
             x: +(element.center.x - originUnits.x).toFixed(4),
@@ -431,6 +474,9 @@
           alpha: element.alpha,
           packed_color: element.packed_color,
           image_asset_ref: element.image_asset_ref,
+          type_id: element.type_id,
+          element_type_id: element.element_type_id,
+          name: element.name,
         })),
       };
       downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), "shaper_result.json");
@@ -439,6 +485,10 @@
 
   if ($("btnExportPNG")) {
     $("btnExportPNG").addEventListener("click", () => {
+      if (mode === "fill" && data.preview_base64) {
+        downloadBase64(data.preview_base64, "shaper_result.png");
+        return;
+      }
       canvas.toBlob((blob) => {
         if (blob) downloadBlob(blob, "shaper_result.png");
       }, "image/png");

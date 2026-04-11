@@ -50,6 +50,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
     <div class="topbar-left">
       <a href="/" style="text-decoration:none;"><h1>图片图元拟合</h1></a>
       <span class="topbar-subtitle">默认填充模式 · 默认仅圆形</span>
+      <a href="#" id="outlineLink" class="topbar-link topbar-link-subtle">装饰物</a>
     </div>
     <div class="topbar-right">
       <a href="https://github.com/1475505/Miliastra-toolbox-primitive-shape" target="_blank" class="topbar-link">仓库</a>
@@ -78,9 +79,11 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <p class="hint">支持 PNG / JPG / WEBP。带透明通道时会优先使用 alpha 作为遮罩。</p>
         </section>
 
-        <div id="fillParams">
-          <section class="panel-section">
-            <h3>图元类型</h3>
+        <!-- 图元 / 装饰物配置 -->
+        <section class="panel-section" id="shapeTypeSection">
+          <h3 id="shapeSectionTitle">图元类型</h3>
+
+          <div id="fillShapeSection">
             <div class="shape-checks">
               <label class="shape-check active">
                 <input type="checkbox" name="shape_circle" id="shapeCircle" checked>
@@ -92,15 +95,34 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span class="shape-icon">□</span>
                 <span>矩形</span>
               </label>
-              <label class="shape-check">
+              <label class="shape-check" id="triangleCheckLabel">
                 <input type="checkbox" name="shape_triangle" id="shapeTriangle">
                 <span class="shape-icon">△</span>
                 <span>三角形</span>
               </label>
             </div>
-            <p class="hint">默认只启用圆形；需要时再叠加矩形或三角形。</p>
-          </section>
+            <p class="hint" id="shapeHint">默认只启用圆形；需要时再叠加矩形或三角形。</p>
+          </div>
 
+          <div id="primitiveListSection" hidden>
+            <div class="outline-intro">
+              <strong>装饰物元件列表</strong>
+              <span>装饰物模式会优先使用这里的元件参数，生成结果时保留类型 ID、元件类型和旋转设置。</span>
+            </div>
+            <div class="primitive-toolbar">
+              <button type="button" id="addCirclePrimitiveBtn" class="btn-chip">+ 圆形元件</button>
+              <button type="button" id="addRectPrimitiveBtn" class="btn-chip">+ 矩形元件</button>
+            </div>
+            <p class="hint" id="primitiveCountHint">建议至少保留一种元件类型。</p>
+            <div id="primitiveList" class="primitive-list"></div>
+            <div id="primitiveEmpty" class="primitive-empty" hidden>
+              <p>还没有装饰物元件</p>
+              <span>先添加一个元件，再选择预设或手动填写参数。</span>
+            </div>
+          </div>
+        </section>
+
+        <div id="fillParams">
           <section class="panel-section">
             <h3>拟合参数</h3>
             <div class="param-item">
@@ -127,13 +149,55 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span class="param-title">透明度</span>
                 <span id="outputAlphaVal" class="val-tag">100%</span>
               </div>
-              <p class="param-desc">100% 表示不透明，数值越低越透明。</p>
-              <input type="range" name="output_alpha" id="outputAlpha" min="10" max="100" step="5" value="100">
+              <p class="param-desc">100% 表示不透明；完全透明0%。</p>
+              <input type="range" name="output_alpha" id="outputAlpha" min="0" max="100" step="5" value="100">
+            </div>
+
+            <div class="param-item">
+              <div class="param-head">
+                <span class="param-title">PNG 模式</span>
+                <span class="val-tag">可选</span>
+              </div>
+              <p class="param-desc">默认关闭。仅对带透明通道的 PNG 生效；开启后不使用遮罩，并让背景图元透明度为 0。开发中</p>
+              <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-main);cursor:pointer;">
+                <input type="checkbox" name="enable_png_mode" id="enablePngMode">
+                <span>启用 PNG 模式</span>
+              </label>
             </div>
           </section>
         </div>
 
-        <div id="outlineParams" hidden></div>
+        <div id="outlineParams" hidden>
+          <section class="panel-section">
+            <h3>轮廓参数</h3>
+            <div class="param-item">
+              <div class="param-head">
+                <span class="param-title">图元大小</span>
+                <span id="olPrimSizeVal" class="val-tag">30</span>
+              </div>
+              <p class="param-desc">轮廓模式下每个图元的基础尺寸。</p>
+              <input type="range" name="ol_primitive_size" id="olPrimSize" min="3" max="200" step="1" value="30">
+            </div>
+
+            <div class="param-item">
+              <div class="param-head">
+                <span class="param-title">间距</span>
+                <span id="olSpacingVal" class="val-tag">0.9</span>
+              </div>
+              <p class="param-desc">图元之间的间距比例，越大越密。</p>
+              <input type="range" name="ol_spacing" id="olSpacing" min="0.1" max="1.0" step="0.05" value="0.9">
+            </div>
+
+            <div class="param-item">
+              <div class="param-head">
+                <span class="param-title">精度</span>
+                <span id="olPrecisionVal" class="val-tag">0.3</span>
+              </div>
+              <p class="param-desc">拟合精度，越高越精细但更慢。</p>
+              <input type="range" name="ol_precision" id="olPrecision" min="0.0" max="1.0" step="0.05" value="0.3">
+            </div>
+          </section>
+        </div>
 
         <section class="panel-section section-submit">
           <button type="submit" id="btnSubmit" class="btn-primary">开始处理</button>
@@ -150,15 +214,18 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <li>生成预览并导出 GIA / JSON / PNG</li>
         </ol>
         <ul class="tips">
-          <li>填充模式会优先读取透明通道作为遮罩。</li>
-          <li>结果页可以右键画布重新设置原点。</li>
-          <li>GIA 导出走 `image_template.gia` 图片节点链路。</li>
+          <li>⚠️ 开发中 (demo)，有很多 bug，已知目前对三角形和矩形支持不友好，优化中</li>
+          <li>暂不支持 PNG 图片的背景透明，可能产生白色背景，此问题后续优化。</li>
+          <li>原本的装饰物模式可能因为新增特性导致不可用</li>
+          <li>遮罩待优化</li>
+          <li>GIA 暂时只支持超限模式资产.</li>
+          <li>用户 QQ 群：1007538100</li>
         </ul>
       </section>
     </aside>
   </div>
 
-  <script src="/web/upload.js?v=21"></script>
+  <script src="/web/upload.js?v=23"></script>
 </body>
 </html>"""
 
@@ -251,13 +318,30 @@ PAGE_RESULT = r"""<!DOCTYPE html>
           </div>
           <div class="config-row">
             <label>透明度</label>
-            <input type="number" name="output_alpha" value="{{ cfg_alpha }}" min="10" max="100" step="5" class="num-input">
+            <input type="number" name="output_alpha" value="{{ cfg_alpha }}" min="0" max="100" step="5" class="num-input">
           </div>
           <button type="submit" class="btn-primary" style="margin-top:8px">重新处理</button>
         </form>
       </section>
 
-      <section class="panel-section" id="retrySectionOutline" hidden></section>
+      <section class="panel-section" id="retrySectionOutline" hidden>
+        <h3>重新处理</h3>
+        <form action="/retry/{{ task_id }}" method="POST">
+          <div class="config-row">
+            <label>图元大小</label>
+            <input type="number" name="primitive_size" value="{{ cfg_ol_size }}" min="3" max="200" class="num-input">
+          </div>
+          <div class="config-row">
+            <label>间距</label>
+            <input type="number" name="spacing" value="{{ cfg_ol_spacing }}" min="0.1" max="1.0" step="0.05" class="num-input">
+          </div>
+          <div class="config-row">
+            <label>精度</label>
+            <input type="number" name="precision" value="{{ cfg_ol_precision }}" min="0.0" max="1.0" step="0.05" class="num-input">
+          </div>
+          <button type="submit" class="btn-primary" style="margin-top:8px">重新处理</button>
+        </form>
+      </section>
     </aside>
 
     <main class="canvas-area">
@@ -344,6 +428,13 @@ def submit():
             "y": request.form.get("origin_y", ""),
         },
     }
+    primitives = []
+    try:
+        parsed_primitives = json.loads(request.form.get("primitives_json", "[]"))
+        if isinstance(parsed_primitives, list):
+            primitives = parsed_primitives
+    except Exception:
+        primitives = []
 
     if mode == "fill":
         # Support both slider and manual input for num_primitives
@@ -356,6 +447,7 @@ def submit():
         cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
         cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
         cfg["output_alpha"] = float(request.form.get("output_alpha", 100)) / 100.0
+        cfg["enable_png_mode"] = request.form.get("enable_png_mode") == "on"
         allowed_shapes = []
         if request.form.get("shape_circle") == "on":
             allowed_shapes.append("circle")
@@ -368,13 +460,18 @@ def submit():
         cfg["primitive_size"] = float(request.form.get("ol_primitive_size", 30))
         cfg["spacing"] = float(request.form.get("ol_spacing", 0.9))
         cfg["precision"] = float(request.form.get("ol_precision", 0.3))
-
-    try:
-        primitives = json.loads(request.form.get("primitives_json", "[]"))
         if primitives:
-            cfg["primitives"] = primitives
-    except Exception:
-        pass
+            outline_shapes = []
+            for primitive in primitives:
+                shape = str(primitive.get("shape", "")).strip().lower()
+                if shape in ("circle", "rect") and shape not in outline_shapes:
+                    outline_shapes.append(shape)
+            cfg["allowed_shapes"] = outline_shapes or ["circle"]
+        else:
+            cfg["allowed_shapes"] = ["circle"]
+
+    if primitives:
+        cfg["primitives"] = primitives
 
     task_id = uuid.uuid4().hex[:8]
     tasks[task_id] = {
@@ -413,7 +510,8 @@ def retry(tid):
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
         cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
         cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))
-        cfg["output_alpha"] = old_cfg.get("output_alpha", 1.0)
+        cfg["output_alpha"] = float(request.form.get("output_alpha", int(old_cfg.get("output_alpha", 1.0) * 100))) / 100.0
+        cfg["enable_png_mode"] = old_cfg.get("enable_png_mode", False)
         cfg["allowed_shapes"] = old_cfg.get("allowed_shapes", ["circle"])
     else:
         cfg["primitive_size"] = float(request.form.get("primitive_size", old_cfg.get("primitive_size", 30)))
@@ -478,6 +576,9 @@ def result(tid):
         cfg_np=cfg.get("num_primitives", 400),
         cfg_scale=cfg.get("image_scale", 1.0),
         cfg_alpha=int(cfg.get("output_alpha", 1.0) * 100),
+        cfg_ol_size=cfg.get("primitive_size", 30),
+        cfg_ol_spacing=cfg.get("spacing", 0.9),
+        cfg_ol_precision=cfg.get("precision", 0.3),
     )
 
 
@@ -520,21 +621,36 @@ def download_overlimit_gia(tid):
 
     elements = []
     for element in result_data.get("elements", []):
+        shape_type = element.get("type")
+        if shape_type == "circle":
+            shape_type = "ellipse"
+        elif shape_type == "rect":
+            shape_type = "rectangle"
+
+        rotation = element.get("rotation", {}) or {}
         center = element.get("center", {}) or {}
-        relative = {
-            "x": float(center.get("x", 0)) - origin_units_x,
-            "y": float(center.get("y", 0)) - origin_units_y,
-        }
-        elements.append({
-            "type": element.get("type"),
-            "relative": relative,
+        exported = {
+            "type": shape_type,
+            "relative": {
+                "x": float(center.get("x", 0)) - origin_units_x,
+                "y": float(center.get("y", 0)) - origin_units_y,
+            },
             "size": element.get("size", {}),
-            "rotation": element.get("rotation", {}),
+            "rotation": rotation,
             "color": element.get("color"),
             "alpha": element.get("alpha"),
             "packed_color": element.get("packed_color"),
             "image_asset_ref": element.get("image_asset_ref", 100002),
-        })
+        }
+        if element.get("type_id") is not None:
+            exported["type_id"] = int(element["type_id"])
+        elif element.get("element_type_id") is not None:
+            exported["type_id"] = int(element["element_type_id"])
+        if element.get("element_type_id") is not None:
+            exported["element_type_id"] = int(element["element_type_id"])
+        if rotation.get("y") is not None:
+            exported["rot_y_add"] = float(rotation.get("y", 0))
+        elements.append(exported)
 
     mask_cfg = None
     mask_data = result_data.get("mask") or {}
