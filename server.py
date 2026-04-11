@@ -683,11 +683,11 @@ def download_overlimit_gia(tid):
 
     mask_cfg = None
     mask_data = result_data.get("mask") or {}
-    if mask_data.get("enabled"):
+    if mask_data:
         mask_center = mask_data.get("center") or {}
         mask_size = mask_data.get("size") or {}
         mask_cfg = {
-            "enabled": True,
+            "enabled": bool(mask_data.get("enabled", False)),
             "shape_type": mask_data.get("shape_type", "rectangle"),
             "center": {
                 "x": float(mask_center.get("x", 0)) - origin_units_x,

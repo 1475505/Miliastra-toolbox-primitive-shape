@@ -363,8 +363,7 @@
     if (outlineRetry) outlineRetry.hidden = mode === "fill";
 
     const compare = $("previewCompare");
-    if (compare) compare.hidden = !(mode === "fill" && data.preview_base64);
-    if ($("previewImg") && data.preview_base64) $("previewImg").src = "data:image/png;base64," + data.preview_base64;
+    if (compare) compare.hidden = mode !== "fill";
     if ($("originalThumb") && data.image_base64) $("originalThumb").src = "data:image/png;base64," + data.image_base64;
   }
 
@@ -396,6 +395,11 @@
     assets.base = base;
     assets.mask = mask;
     render();
+
+    // 将画布内容导出为拟合效果预览图
+    if ($("previewImg")) {
+      $("previewImg").src = canvas.toDataURL("image/png");
+    }
   }
 
   ["showImage", "showMask", "showFill", "showBorder", "showOrigin"].forEach((id) => {
@@ -525,10 +529,6 @@
 
   if ($("btnExportPNG")) {
     $("btnExportPNG").addEventListener("click", () => {
-      if (mode === "fill" && data.preview_base64) {
-        downloadBase64(data.preview_base64, exportFileName("png"));
-        return;
-      }
       canvas.toBlob((blob) => {
         if (blob) downloadBlob(blob, exportFileName("png"));
       }, "image/png");
