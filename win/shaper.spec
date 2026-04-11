@@ -1,37 +1,45 @@
 # -*- mode: python ; coding: utf-8 -*-
-import sys
-import os
+from pathlib import Path
+
 
 block_cipher = None
 
+spec_dir = Path(SPECPATH).resolve()
+project_dir = spec_dir.parent
+win_dir = spec_dir
+gia_dir = project_dir / "gia"
+web_dir = project_dir / "web"
+
 a = Analysis(
-    ['app_desktop.py'],
-    pathex=[],
+    [str(win_dir / "app_desktop.py")],
+    pathex=[str(project_dir), str(gia_dir)],
     binaries=[],
     datas=[
-        ('../web', 'web'),
-        ('../gia', 'gia'),
-        ('../server.py', '.'),
-        ('../shaper_core.py', '.'),
-        ('../final_shaper.py', '.'),
+        (str(web_dir), "web"),
+        (str(gia_dir / "image_template.gia"), "gia"),
     ],
     hiddenimports=[
-        'engineio.async_drivers.threading',
-        'scipy.special.cython_special',
-        'shapely', 
-        'shapely.geometry', 
-        'shapely.algorithms', 
-        'shapely.coords',
-        'cv2', 
-        'numpy', 
-        'flask', 
-        'webview',
-        'json_to_gia'
+        "server",
+        "shaper_core",
+        "fill_shaper",
+        "final_shaper",
+        "json_to_gia",
+        "scipy.special.cython_special",
+        "shapely",
+        "shapely.geometry",
+        "shapely.algorithms",
+        "shapely.coords",
+        "cv2",
+        "numpy",
+        "flask",
+        "webview",
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "cefpython3",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -46,7 +54,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='Shaper',
+    name="Shaper",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

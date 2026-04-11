@@ -1,49 +1,68 @@
 @echo off
-REM ============================================
-REM   Shaper Windows 构建脚本
-REM   在 Windows 上运行此脚本来打包 .exe
-REM ============================================
+setlocal
+chcp 65001 >nul
+set PYTHONUTF8=1
+
 echo.
 echo  ============================
 echo   Shaper Windows Build
 echo  ============================
 echo.
 
-REM 检查 Python
-python --version >nul 2>&1
+where py >nul 2>&1
+if not errorlevel 1 (
+    set "BOOTSTRAP=py -3"
+) else (
+    set "BOOTSTRAP=python"
+)
+
+%BOOTSTRAP% --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] 未找到 Python, 请先安装 Python 3.9+
-    pause
+    echo [ERROR] Python 3.9+ was not found.
     exit /b 1
 )
 
-REM 切到项目根目录
 cd /d "%~dp0\.."
+set "VENV_PY=.venv\Scripts\python.exe"
 
-REM 创建虚拟环境 (如果不存在)
-if not exist ".venv" (
-    echo [1/4] 创建虚拟环境...
-    python -m venv .venv
+if not exist "%VENV_PY%" (
+    echo [1/4] Creating virtual environment...
+    %BOOTSTRAP% -m venv .venv
+    if errorlevel 1 (
+        echo [ERROR] Failed to create the virtual environment.
+        exit /b 1
+    )
+) else (
+    echo [1/4] Reusing existing virtual environment...
 )
 
-REM 激活虚拟环境并安装依赖
-echo [2/4] 安装依赖...
-call .venv\Scripts\activate.bat
+echo [2/4] Installing dependencies...
+"%VENV_PY%" -m pip install --upgrade pip
+if errorlevel 1 (
+    echo [ERROR] Failed to upgrade pip.
+    exit /b 1
+)
 
-pip install --upgrade pip
-pip install -r win\requirements.txt
-pip install pyinstaller pywebview[cef]
+"%VENV_PY%" -m pip install -r win\requirements.txt pyinstaller
+if errorlevel 1 (
+    echo [ERROR] Failed to install build dependencies.
+    exit /b 1
+)
 
-REM 打包
-echo [3/4] 打包为 Windows 应用...
-pyinstaller win\shaper.spec --clean --noconfirm
+echo [3/4] Building Windows app...
+"%VENV_PY%" -m PyInstaller win\shaper.spec --clean --noconfirm
+if errorlevel 1 (
+    echo [ERROR] PyInstaller build failed.
+    exit /b 1
+)
 
 echo.
-echo [4/4] 构建完成!
+echo [4/4] Build complete!
 echo.
-echo   输出目录: dist\
-echo   可执行文件: dist\Shaper.exe
+echo   Output folder: dist\
+echo   Executable:    dist\Shaper.exe
 echo.
-echo   可以将 dist 目录下的文件打包发布
+echo   Ship the whole dist folder to publish the desktop app.
 echo.
-pause
+
+endlocal
