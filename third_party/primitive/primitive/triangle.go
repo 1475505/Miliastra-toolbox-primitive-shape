@@ -18,10 +18,12 @@ func NewRandomTriangle(worker *Worker) *Triangle {
 	rnd := worker.Rnd
 	x1 := rnd.Intn(worker.W)
 	y1 := rnd.Intn(worker.H)
-	x2 := x1 + rnd.Intn(31) - 15
-	y2 := y1 + rnd.Intn(31) - 15
-	x3 := x1 + rnd.Intn(31) - 15
-	y3 := y1 + rnd.Intn(31) - 15
+	spanX := randomSmallSpan(rnd.Float64(), biasedShapeSpan(0.14, worker.W))
+	spanY := randomSmallSpan(rnd.Float64(), biasedShapeSpan(0.14, worker.H))
+	x2 := x1 + rnd.Intn(2*spanX+1) - spanX
+	y2 := y1 + rnd.Intn(2*spanY+1) - spanY
+	x3 := x1 + rnd.Intn(2*spanX+1) - spanX
+	y3 := y1 + rnd.Intn(2*spanY+1) - spanY
 	t := &Triangle{worker, x1, y1, x2, y2, x3, y3}
 	t.Mutate()
 	return t
@@ -50,18 +52,18 @@ func (t *Triangle) Mutate() {
 	w := t.Worker.W
 	h := t.Worker.H
 	rnd := t.Worker.Rnd
-	const m = 16
+	const m = 10
 	for {
 		switch rnd.Intn(3) {
 		case 0:
-			t.X1 = clampInt(t.X1+int(rnd.NormFloat64()*16), -m, w-1+m)
-			t.Y1 = clampInt(t.Y1+int(rnd.NormFloat64()*16), -m, h-1+m)
+			t.X1 = clampInt(t.X1+int(rnd.NormFloat64()*10), -m, w-1+m)
+			t.Y1 = clampInt(t.Y1+int(rnd.NormFloat64()*10), -m, h-1+m)
 		case 1:
-			t.X2 = clampInt(t.X2+int(rnd.NormFloat64()*16), -m, w-1+m)
-			t.Y2 = clampInt(t.Y2+int(rnd.NormFloat64()*16), -m, h-1+m)
+			t.X2 = clampInt(t.X2+int(rnd.NormFloat64()*10), -m, w-1+m)
+			t.Y2 = clampInt(t.Y2+int(rnd.NormFloat64()*10), -m, h-1+m)
 		case 2:
-			t.X3 = clampInt(t.X3+int(rnd.NormFloat64()*16), -m, w-1+m)
-			t.Y3 = clampInt(t.Y3+int(rnd.NormFloat64()*16), -m, h-1+m)
+			t.X3 = clampInt(t.X3+int(rnd.NormFloat64()*10), -m, w-1+m)
+			t.Y3 = clampInt(t.Y3+int(rnd.NormFloat64()*10), -m, h-1+m)
 		}
 		if t.Valid() {
 			break

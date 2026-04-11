@@ -75,10 +75,10 @@ def process_image_fill(image_bytes, config=None):
     primitive_fit = primitive_backend.fit_image_with_primitive(
         image,
         {
-            "num_primitives": int(config.get("num_primitives", 180)),
+            "num_primitives": int(config.get("num_primitives", 400)),
             "allowed_shapes": config.get("allowed_shapes", ["circle"]),
             "mask_threshold": int(max(1, min(254, config.get("mask_threshold", 127)))),
-            "detail_scale": float(max(0.25, config.get("detail_scale", 1.0))),
+            "detail_scale": float(max(0.25, config.get("detail_scale", 1.2))),
         },
     )
     results = primitive_fit["results"]
@@ -111,7 +111,7 @@ def process_image_fill(image_bytes, config=None):
             "engine": "primitive-official",
             "pixel_per_unit": round(1.0 / unit_scale, 6),
             "unit_scale": unit_scale,
-            "num_primitives": int(config.get("num_primitives", 180)),
+            "num_primitives": int(config.get("num_primitives", 400)),
             "fit_size": primitive_fit["fit_size"],
             "mask_threshold": int(max(1, min(254, config.get("mask_threshold", 127)))),
             "image_scale": unit_scale,

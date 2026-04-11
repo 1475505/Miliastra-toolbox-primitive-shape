@@ -52,9 +52,11 @@ def ensure_primitive_binary():
         os.path.join(BASE_DIR, "build", binary_name),
         os.path.join(BASE_DIR, "build", "bin", binary_name),
     ]
+    existing_binary = None
     for path in candidate_bins:
         if os.path.exists(path):
-            return path
+            existing_binary = path
+            break
 
     go_candidates = []
     go_from_path = shutil.which("go")
@@ -63,6 +65,8 @@ def ensure_primitive_binary():
     bundled_go = os.path.join(BASE_DIR, "tools", "go", "go", "bin", "go.exe" if os.name == "nt" else "go")
     if os.path.exists(bundled_go):
         go_candidates.append(bundled_go)
+    if existing_binary and not _primitive_source_is_newer(existing_binary):
+        return existing_binary
     if not go_candidates:
         raise FileNotFoundError(f"{binary_name} 缺失，且本地未找到 Go 工具链")
     if not os.path.exists(PRIMITIVE_SRC):
@@ -88,6 +92,20 @@ def ensure_primitive_binary():
     if not os.path.exists(output_path):
         raise FileNotFoundError(f"{binary_name} 构建失败")
     return output_path
+
+
+def _primitive_source_is_newer(binary_path):
+    if not os.path.exists(binary_path):
+        return True
+    binary_mtime = os.path.getmtime(binary_path)
+    for root, _, files in os.walk(PRIMITIVE_SRC):
+        for name in files:
+            if not name.endswith((".go", ".mod", ".sum")):
+                continue
+            source_path = os.path.join(root, name)
+            if os.path.getmtime(source_path) > binary_mtime:
+                return True
+    return False
 
 
 def _clean_mask(mask):
@@ -298,7 +316,7 @@ def fit_image_with_primitive(image, config=None):
 
     primitive_exe = ensure_primitive_binary()
     mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
-    num_primitives = int(max(1, config.get("num_primitives", 180)))
+    num_primitives = int(max(1, config.get("num_primitives", 400)))
 
     image_bgr, mask = _extract_image_and_mask(image, mask_threshold)
     full_height, full_width = image_bgr.shape[:2]
@@ -309,7 +327,7 @@ def fit_image_with_primitive(image, config=None):
 
     crop_h, crop_w = crop_bgr.shape[:2]
     max_crop_dim = max(crop_w, crop_h)
-    detail_scale = float(max(0.25, config.get("detail_scale", 1.0)))
+    detail_scale = float(max(0.25, config.get("detail_scale", 1.2)))
     target_fit_size = int(round(max_crop_dim * detail_scale))
     fit_size = int(max(16, min(target_fit_size, 2048)))
     resize_scale = max_crop_dim / float(fit_size)

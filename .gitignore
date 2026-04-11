@@ -14,3 +14,7 @@ gia/*
 !gia/json_to_gia.pyd
 
 .vscode/
+tools/
+third_party/primitive/bot/
+third_party/primitive/examples/
+third_party/primitive/scripts/

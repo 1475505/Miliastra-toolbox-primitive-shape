@@ -106,10 +106,10 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
             <div class="param-item">
               <div class="param-head">
                 <span class="param-title">图元数量</span>
-                <span id="numPrimsVal" class="val-tag">180</span>
+                <span id="numPrimsVal" class="val-tag">400</span>
               </div>
               <p class="param-desc">越多越细，但耗时也更高。</p>
-              <input type="range" name="num_primitives" id="numPrims" min="40" max="500" step="10" value="180">
+              <input type="range" name="num_primitives" id="numPrims" min="40" max="1000" step="10" value="400">
             </div>
 
             <div class="param-item">
@@ -233,7 +233,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
         <form action="/retry/{{ task_id }}" method="POST">
           <div class="config-row">
             <label>图元数量</label>
-            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="500" class="num-input">
+            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="1000" class="num-input">
           </div>
           <div class="config-row">
             <label>图片缩放</label>
@@ -332,9 +332,9 @@ def submit():
     }
 
     if mode == "fill":
-        cfg["num_primitives"] = int(request.form.get("num_primitives", 180))
+        cfg["num_primitives"] = int(request.form.get("num_primitives", 400))
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", 127))
-        cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
+        cfg["detail_scale"] = float(request.form.get("detail_scale", 1.2))
         cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
         allowed_shapes = []
         if request.form.get("shape_circle") == "on":
@@ -389,9 +389,9 @@ def retry(tid):
     cfg = {"mode": mode}
 
     if mode == "fill":
-        cfg["num_primitives"] = int(request.form.get("num_primitives", old_cfg.get("num_primitives", 180)))
+        cfg["num_primitives"] = int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
-        cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
+        cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.2)))
         cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))
         cfg["allowed_shapes"] = old_cfg.get("allowed_shapes", ["circle"])
     else:
@@ -454,7 +454,7 @@ def result(tid):
         task_id=tid,
         count=result_data["elements_count"],
         elapsed=result_data["elapsed_seconds"],
-        cfg_np=cfg.get("num_primitives", 180),
+        cfg_np=cfg.get("num_primitives", 400),
         cfg_scale=cfg.get("image_scale", 1.0),
     )
 
