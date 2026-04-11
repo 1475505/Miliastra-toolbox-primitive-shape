@@ -236,7 +236,7 @@ def process_image_fill(image_bytes, config=None):
             "packed_color": 0xFFFFFFFF,  # 白色不透明
             "is_background": True,
         }
-        elements.insert(0, bg_element)
+        elements.append(bg_element)
 
     x0, y0, x1, y1 = _mask_bbox(coverage_for_bbox)
     mask_width = max(1, x1 - x0)
