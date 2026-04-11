@@ -70,42 +70,11 @@ func (worker *Worker) BestHillClimbState(t ShapeType, a, n, age, m int) *State {
 	return bestState
 }
 
-func (worker *Worker) BestHillClimbStateSet(types []ShapeType, a, n, age, m int) *State {
-	var bestEnergy float64
-	var bestState *State
-	for i := 0; i < m; i++ {
-		state := worker.BestRandomStateSet(types, a, n)
-		before := state.Energy()
-		state = HillClimb(state, age).(*State)
-		energy := state.Energy()
-		vv("%dx random: %.6f -> %dx hill climb: %.6f\n", n, before, age, energy)
-		if i == 0 || energy < bestEnergy {
-			bestEnergy = energy
-			bestState = state
-		}
-	}
-	return bestState
-}
-
 func (worker *Worker) BestRandomState(t ShapeType, a, n int) *State {
 	var bestEnergy float64
 	var bestState *State
 	for i := 0; i < n; i++ {
 		state := worker.RandomState(t, a)
-		energy := state.Energy()
-		if i == 0 || energy < bestEnergy {
-			bestEnergy = energy
-			bestState = state
-		}
-	}
-	return bestState
-}
-
-func (worker *Worker) BestRandomStateSet(types []ShapeType, a, n int) *State {
-	var bestEnergy float64
-	var bestState *State
-	for i := 0; i < n; i++ {
-		state := worker.RandomStateSet(types, a)
 		energy := state.Energy()
 		if i == 0 || energy < bestEnergy {
 			bestEnergy = energy
@@ -136,12 +105,4 @@ func (worker *Worker) RandomState(t ShapeType, a int) *State {
 	case ShapeTypePolygon:
 		return NewState(worker, NewRandomPolygon(worker, 4, false), a)
 	}
-}
-
-func (worker *Worker) RandomStateSet(types []ShapeType, a int) *State {
-	if len(types) == 0 {
-		return worker.RandomState(ShapeTypeAny, a)
-	}
-	index := worker.Rnd.Intn(len(types))
-	return worker.RandomState(types[index], a)
 }

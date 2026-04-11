@@ -18,6 +18,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PRIMITIVE_SRC = os.path.join(BASE_DIR, "third_party", "primitive")
 
 SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
+SHAPE_MODE_MAP = {"triangle": 1, "rect": 5, "circle": 7}
+SHAPE_ORDER = ("circle", "rect", "triangle")
 
 
 def _rgb_to_hex(color):
@@ -144,19 +146,30 @@ def _compute_bbox(mask):
     return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
-def _shape_set_for_allowed(allowed_shapes):
-    shape_names = list(allowed_shapes or ["circle"])
-    mapped = []
-    for name in shape_names:
-        if name == "circle":
-            mapped.append("rotatedellipse")
-        elif name == "rect":
-            mapped.append("rotatedrect")
-        elif name == "triangle":
-            mapped.append("triangle")
-    if not mapped:
-        mapped = ["rotatedellipse"]
-    return ",".join(dict.fromkeys(mapped))
+def _normalize_allowed_shapes(allowed_shapes):
+    requested = [str(name).strip().lower() for name in (allowed_shapes or ["circle"])]
+    normalized = []
+    for name in SHAPE_ORDER:
+        if name in requested and name not in normalized:
+            normalized.append(name)
+    for name in requested:
+        if name in SHAPE_MODE_MAP and name not in normalized:
+            normalized.append(name)
+    return normalized or ["circle"]
+
+
+def _build_shape_configs(allowed_shapes, num_primitives):
+    normalized = _normalize_allowed_shapes(allowed_shapes)
+    total = max(1, int(num_primitives))
+    base = total // len(normalized)
+    remainder = total % len(normalized)
+    configs = []
+    for index, shape_name in enumerate(normalized):
+        count = base + (1 if index < remainder else 0)
+        if count <= 0:
+            continue
+        configs.append((SHAPE_MODE_MAP[shape_name], count))
+    return configs or [(SHAPE_MODE_MAP["circle"], total)]
 
 
 def _local_name(tag):
@@ -327,13 +340,13 @@ def fit_image_with_primitive(image, config=None):
 
     crop_h, crop_w = crop_bgr.shape[:2]
     max_crop_dim = max(crop_w, crop_h)
-    detail_scale = float(max(0.25, config.get("detail_scale", 1.2)))
+    detail_scale = float(max(0.25, config.get("detail_scale", 1.0)))
     target_fit_size = int(round(max_crop_dim * detail_scale))
     fit_size = int(max(16, min(target_fit_size, 2048)))
     resize_scale = max_crop_dim / float(fit_size)
     coord_scale = resize_scale
     output_size = max(32, fit_size)
-    shape_set = _shape_set_for_allowed(config.get("allowed_shapes", ["circle"]))
+    shape_configs = _build_shape_configs(config.get("allowed_shapes", ["circle"]), num_primitives)
 
     with tempfile.TemporaryDirectory(prefix="primitive_fit_") as tmpdir:
         input_path = os.path.join(tmpdir, "input.png")
@@ -349,17 +362,15 @@ def fit_image_with_primitive(image, config=None):
             svg_path,
             "-o",
             png_path,
-            "-n",
-            str(num_primitives),
             "-a",
             "128",
             "-r",
             str(fit_size),
             "-s",
             str(output_size),
-            "-shapes",
-            shape_set,
         ]
+        for mode, count in shape_configs:
+            cmd.extend(["-m", str(mode), "-n", str(count)])
         subprocess.run(cmd, check=True, capture_output=True, text=True)
 
         results = parse_primitive_svg(

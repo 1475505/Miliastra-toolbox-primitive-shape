@@ -19,10 +19,8 @@ func NewRandomEllipse(worker *Worker) *Ellipse {
 	rnd := worker.Rnd
 	x := rnd.Intn(worker.W)
 	y := rnd.Intn(worker.H)
-	limitX := biasedShapeSpan(0.12, worker.W)
-	limitY := biasedShapeSpan(0.12, worker.H)
-	rx := randomSmallSpan(rnd.Float64(), limitX)
-	ry := randomSmallSpan(rnd.Float64(), limitY)
+	rx := rnd.Intn(32) + 1
+	ry := rnd.Intn(32) + 1
 	return &Ellipse{worker, x, y, rx, ry, false}
 }
 
@@ -30,8 +28,7 @@ func NewRandomCircle(worker *Worker) *Ellipse {
 	rnd := worker.Rnd
 	x := rnd.Intn(worker.W)
 	y := rnd.Intn(worker.H)
-	limit := biasedShapeSpan(0.12, minInt(worker.W, worker.H))
-	r := randomSmallSpan(rnd.Float64(), limit)
+	r := rnd.Intn(32) + 1
 	return &Ellipse{worker, x, y, r, r, true}
 }
 
@@ -57,15 +54,15 @@ func (c *Ellipse) Mutate() {
 	rnd := c.Worker.Rnd
 	switch rnd.Intn(3) {
 	case 0:
-		c.X = clampInt(c.X+int(rnd.NormFloat64()*10), 0, w-1)
-		c.Y = clampInt(c.Y+int(rnd.NormFloat64()*10), 0, h-1)
+		c.X = clampInt(c.X+int(rnd.NormFloat64()*16), 0, w-1)
+		c.Y = clampInt(c.Y+int(rnd.NormFloat64()*16), 0, h-1)
 	case 1:
-		c.Rx = clampInt(c.Rx+int(rnd.NormFloat64()*8), 1, w-1)
+		c.Rx = clampInt(c.Rx+int(rnd.NormFloat64()*16), 1, w-1)
 		if c.Circle {
 			c.Ry = c.Rx
 		}
 	case 2:
-		c.Ry = clampInt(c.Ry+int(rnd.NormFloat64()*8), 1, h-1)
+		c.Ry = clampInt(c.Ry+int(rnd.NormFloat64()*16), 1, h-1)
 		if c.Circle {
 			c.Rx = c.Ry
 		}
@@ -113,10 +110,8 @@ func NewRandomRotatedEllipse(worker *Worker) *RotatedEllipse {
 	rnd := worker.Rnd
 	x := rnd.Float64() * float64(worker.W)
 	y := rnd.Float64() * float64(worker.H)
-	limitX := float64(biasedShapeSpan(0.12, worker.W))
-	limitY := float64(biasedShapeSpan(0.12, worker.H))
-	rx := float64(randomSmallSpan(rnd.Float64(), int(limitX)))
-	ry := float64(randomSmallSpan(rnd.Float64(), int(limitY)))
+	rx := rnd.Float64()*32 + 1
+	ry := rnd.Float64()*32 + 1
 	a := rnd.Float64() * 360
 	return &RotatedEllipse{worker, x, y, rx, ry, a}
 }
@@ -146,13 +141,13 @@ func (c *RotatedEllipse) Mutate() {
 	rnd := c.Worker.Rnd
 	switch rnd.Intn(3) {
 	case 0:
-		c.X = clamp(c.X+rnd.NormFloat64()*10, 0, float64(w-1))
-		c.Y = clamp(c.Y+rnd.NormFloat64()*10, 0, float64(h-1))
+		c.X = clamp(c.X+rnd.NormFloat64()*16, 0, float64(w-1))
+		c.Y = clamp(c.Y+rnd.NormFloat64()*16, 0, float64(h-1))
 	case 1:
-		c.Rx = clamp(c.Rx+rnd.NormFloat64()*8, 1, float64(w-1))
-		c.Ry = clamp(c.Ry+rnd.NormFloat64()*8, 1, float64(h-1))
+		c.Rx = clamp(c.Rx+rnd.NormFloat64()*16, 1, float64(w-1))
+		c.Ry = clamp(c.Ry+rnd.NormFloat64()*16, 1, float64(w-1))
 	case 2:
-		c.Angle = c.Angle + rnd.NormFloat64()*20
+		c.Angle = c.Angle + rnd.NormFloat64()*32
 	}
 }
 

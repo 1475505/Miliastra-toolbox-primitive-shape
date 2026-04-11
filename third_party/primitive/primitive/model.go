@@ -144,28 +144,6 @@ func (model *Model) Step(shapeType ShapeType, alpha, repeat int) int {
 	return counter
 }
 
-func (model *Model) StepSet(shapeTypes []ShapeType, alpha, repeat int) int {
-	state := model.runWorkersSet(shapeTypes, alpha, 1000, 100, 16)
-	model.Add(state.Shape, state.Alpha)
-
-	for i := 0; i < repeat; i++ {
-		state.Worker.Init(model.Current, model.Score)
-		a := state.Energy()
-		state = HillClimb(state, 100).(*State)
-		b := state.Energy()
-		if a == b {
-			break
-		}
-		model.Add(state.Shape, state.Alpha)
-	}
-
-	counter := 0
-	for _, worker := range model.Workers {
-		counter += worker.Counter
-	}
-	return counter
-}
-
 func (model *Model) runWorkers(t ShapeType, a, n, age, m int) *State {
 	wn := len(model.Workers)
 	ch := make(chan *State, wn)
@@ -191,35 +169,6 @@ func (model *Model) runWorkers(t ShapeType, a, n, age, m int) *State {
 	return bestState
 }
 
-func (model *Model) runWorkersSet(types []ShapeType, a, n, age, m int) *State {
-	wn := len(model.Workers)
-	ch := make(chan *State, wn)
-	wm := m / wn
-	if m%wn != 0 {
-		wm++
-	}
-	for i := 0; i < wn; i++ {
-		worker := model.Workers[i]
-		worker.Init(model.Current, model.Score)
-		go model.runWorkerSet(worker, types, a, n, age, wm, ch)
-	}
-	var bestEnergy float64
-	var bestState *State
-	for i := 0; i < wn; i++ {
-		state := <-ch
-		energy := state.Energy()
-		if i == 0 || energy < bestEnergy {
-			bestEnergy = energy
-			bestState = state
-		}
-	}
-	return bestState
-}
-
 func (model *Model) runWorker(worker *Worker, t ShapeType, a, n, age, m int, ch chan *State) {
 	ch <- worker.BestHillClimbState(t, a, n, age, m)
-}
-
-func (model *Model) runWorkerSet(worker *Worker, types []ShapeType, a, n, age, m int, ch chan *State) {
-	ch <- worker.BestHillClimbStateSet(types, a, n, age, m)
 }

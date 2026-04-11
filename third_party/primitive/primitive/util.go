@@ -16,26 +16,6 @@ import (
 	"path/filepath"
 )
 
-func biasedShapeSpan(ratio float64, limit int) int {
-	if limit <= 1 {
-		return 1
-	}
-	span := int(math.Round(math.Max(1, ratio*float64(limit))))
-	if span > limit {
-		span = limit
-	}
-	return span
-}
-
-func randomSmallSpan(rnd float64, limit int) int {
-	if limit <= 1 {
-		return 1
-	}
-	// Bias heavily toward smaller primitives so dense icon-like images emerge sooner.
-	value := int(math.Round(math.Pow(rnd, 2.6) * float64(limit-1)))
-	return clampInt(value+1, 1, limit)
-}
-
 func LoadImage(path string) (image.Image, error) {
 	if path == "-" {
 		im, _, err := image.Decode(os.Stdin)

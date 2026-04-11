@@ -334,7 +334,7 @@ def submit():
     if mode == "fill":
         cfg["num_primitives"] = int(request.form.get("num_primitives", 400))
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", 127))
-        cfg["detail_scale"] = float(request.form.get("detail_scale", 1.2))
+        cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
         cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
         allowed_shapes = []
         if request.form.get("shape_circle") == "on":
@@ -391,7 +391,7 @@ def retry(tid):
     if mode == "fill":
         cfg["num_primitives"] = int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))
         cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
-        cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.2)))
+        cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
         cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))
         cfg["allowed_shapes"] = old_cfg.get("allowed_shapes", ["circle"])
     else:

@@ -29,7 +29,6 @@ var (
 	Nth        int
 	Repeat     int
 	V, VV      bool
-	ShapeSet   string
 )
 
 type flagArray []string
@@ -74,47 +73,8 @@ func init() {
 	flag.IntVar(&Workers, "j", 0, "number of parallel workers (default uses all cores)")
 	flag.IntVar(&Nth, "nth", 1, "save every Nth frame (put \"%d\" in path)")
 	flag.IntVar(&Repeat, "rep", 0, "add N extra shapes per iteration with reduced search")
-	flag.StringVar(&ShapeSet, "shapes", "", "comma-separated shape set: triangle,rect,ellipse,circle,rotatedrect,beziers,rotatedellipse,polygon")
 	flag.BoolVar(&V, "v", false, "verbose")
 	flag.BoolVar(&VV, "vv", false, "very verbose")
-}
-
-func parseShapeSet(value string) ([]primitive.ShapeType, error) {
-	if strings.TrimSpace(value) == "" {
-		return nil, nil
-	}
-	parts := strings.Split(value, ",")
-	result := make([]primitive.ShapeType, 0, len(parts))
-	seen := make(map[primitive.ShapeType]bool)
-	for _, part := range parts {
-		name := strings.ToLower(strings.TrimSpace(part))
-		var shapeType primitive.ShapeType
-		switch name {
-		case "triangle", "tri":
-			shapeType = primitive.ShapeTypeTriangle
-		case "rect", "rectangle":
-			shapeType = primitive.ShapeTypeRectangle
-		case "ellipse":
-			shapeType = primitive.ShapeTypeEllipse
-		case "circle":
-			shapeType = primitive.ShapeTypeCircle
-		case "rotatedrect", "rotated-rect", "rotated_rectangle":
-			shapeType = primitive.ShapeTypeRotatedRectangle
-		case "beziers", "bezier", "quadratic":
-			shapeType = primitive.ShapeTypeQuadratic
-		case "rotatedellipse", "rotated-ellipse", "rotated_ellipse":
-			shapeType = primitive.ShapeTypeRotatedEllipse
-		case "polygon":
-			shapeType = primitive.ShapeTypePolygon
-		default:
-			return nil, fmt.Errorf("unknown shape name: %s", part)
-		}
-		if !seen[shapeType] {
-			result = append(result, shapeType)
-			seen[shapeType] = true
-		}
-	}
-	return result, nil
 }
 
 func errorMessage(message string) bool {
@@ -165,9 +125,6 @@ func main() {
 		primitive.LogLevel = 2
 	}
 
-	shapeTypes, err := parseShapeSet(ShapeSet)
-	check(err)
-
 	// seed random number generator
 	rand.Seed(time.Now().UTC().UnixNano())
 
@@ -209,12 +166,7 @@ func main() {
 
 			// find optimal shape and add it to the model
 			t := time.Now()
-			var n int
-			if len(shapeTypes) > 0 {
-				n = model.StepSet(shapeTypes, config.Alpha, config.Repeat)
-			} else {
-				n = model.Step(primitive.ShapeType(config.Mode), config.Alpha, config.Repeat)
-			}
+			n := model.Step(primitive.ShapeType(config.Mode), config.Alpha, config.Repeat)
 			nps := primitive.NumberString(float64(n) / time.Since(t).Seconds())
 			elapsed := time.Since(start).Seconds()
 			primitive.Log(1, "%d: t=%.3f, score=%.6f, n=%d, n/s=%s\n", frame, elapsed, model.Score, n, nps)
