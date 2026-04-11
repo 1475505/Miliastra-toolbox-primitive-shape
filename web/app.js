@@ -152,6 +152,8 @@
     const center = imagePointToElementCenter(element);
     const selected = !isBackgroundElement(element) && index === selectedIndex;
     const highlighted = !isBackgroundElement(element) && (selected || (selectedIndex === null && index === hoveredIndex));
+    const rawAlpha = Number(element.alpha);
+    const fillAlpha = Number.isFinite(rawAlpha) ? Math.max(0, rawAlpha) : 0.5;
 
     ctx.save();
     ctx.translate(center.x, center.y);
@@ -162,7 +164,7 @@
     if ($("showFill").checked) {
       if (selected) ctx.fillStyle = "rgba(37, 99, 235, 0.42)";
       else if (highlighted) ctx.fillStyle = "rgba(59, 130, 246, 0.28)";
-      else ctx.fillStyle = cssColor(element.color, Math.max(0.12, Number(element.alpha || 0.5)));
+      else ctx.fillStyle = cssColor(element.color, fillAlpha);
       ctx.fill();
     }
 
@@ -398,7 +400,9 @@
 
     // 将画布内容导出为拟合效果预览图
     if ($("previewImg")) {
-      $("previewImg").src = canvas.toDataURL("image/png");
+      $("previewImg").src = data.preview_base64
+        ? "data:image/png;base64," + data.preview_base64
+        : canvas.toDataURL("image/png");
     }
   }
 

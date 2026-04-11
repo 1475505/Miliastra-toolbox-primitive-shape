@@ -63,7 +63,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Primitive Shape Fitter</title>
+  <title>千星奇域拼图工具</title>
   <link rel="stylesheet" href="/web/style.css">
 </head>
 <body class="page-upload">
@@ -75,6 +75,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
     </div>
     <div class="topbar-right">
       <a href="https://github.com/1475505/Miliastra-toolbox-primitive-shape" target="_blank" class="topbar-link">仓库</a>
+      <a href="https://ugc.070077.xyz/" target="_blank" class="topbar-link">知识问答</a>
       <span class="topbar-status active">就绪</span>
     </div>
   </header>
@@ -237,8 +238,8 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
         <ul class="tips">
           <li>⚠️ 开发中 (demo)，有很多 bug，已知目前对三角形和矩形支持不友好，优化中</li>
           <li>PNG 图片默认会将透明区域与白色背景混合。如需保留透明背景，请在参数中开启「PNG 模式」。</li>
-          <li>原本的装饰物模式可能因为新增特性导致不可用</li>
-          <li>遮罩待优化</li>
+          <li>之前用于拼字的系统, 在上方切换成装饰物模式使用. 不确定现在还能不能用</li>
+          <li>使用教程:https://www.bilibili.com/video/BV1kKDyB9EvY</li>
           <li>GIA 暂时只支持超限模式资产.</li>
           <li>用户 QQ 群：1007538100</li>
         </ul>
@@ -273,7 +274,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Primitive Shape Fitter Result</title>
+  <title>千星奇域拼图工具 - 结果</title>
   <link rel="stylesheet" href="/web/style.css">
   <script>
     var RESULT={{ result_json|safe }};

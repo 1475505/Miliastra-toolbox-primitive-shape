@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 import cv2
 import numpy as np
 
+import fill_shaper
 import final_shaper as fs
 
 
@@ -20,6 +21,9 @@ PRIMITIVE_SRC = os.path.join(BASE_DIR, "third_party", "primitive")
 SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
 SHAPE_MODE_MAP = {"triangle": 1, "rect": 5, "circle": 7}
 SHAPE_ORDER = ("circle", "rect", "triangle")
+PNG_ALPHA_FIT_FLOOR = 0.2
+PNG_ALPHA_FIT_GAMMA = 1.6
+MIN_VISIBLE_ALPHA_WEIGHT = 0.05
 
 
 def _rgb_to_hex(color):
@@ -130,6 +134,25 @@ def _clean_mask(mask):
     return np.ones_like(mask, dtype=bool)
 
 
+def _compress_alpha_for_fitting(alpha_channel, floor=PNG_ALPHA_FIT_FLOOR, gamma=PNG_ALPHA_FIT_GAMMA):
+    alpha = np.clip(alpha_channel.astype(np.float32) / 255.0, 0.0, 1.0)
+    floor = float(np.clip(floor, 0.0, 0.95))
+    gamma = float(max(0.1, gamma))
+    compressed = np.clip((alpha - floor) / max(1e-6, 1.0 - floor), 0.0, 1.0)
+    compressed = np.power(compressed, gamma)
+    return np.clip(np.rint(compressed * 255.0), 0, 255).astype(np.uint8)
+
+
+def _prepare_transparent_target(image):
+    alpha = image[:, :, 3].astype(np.float32) / 255.0
+    flattened_rgb = image[:, :, :3].astype(np.float32)
+    flattened_rgb = flattened_rgb * alpha[:, :, None] + 255.0 * (1.0 - alpha[:, :, None])
+    target_image = np.empty_like(image)
+    target_image[:, :, :3] = np.clip(np.rint(flattened_rgb), 0, 255).astype(np.uint8)
+    target_image[:, :, 3] = _compress_alpha_for_fitting(image[:, :, 3])
+    return target_image
+
+
 def _extract_image_and_mask(image, mask_threshold, use_alpha_target=False):
     if image.ndim == 2:
         target_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -139,12 +162,13 @@ def _extract_image_and_mask(image, mask_threshold, use_alpha_target=False):
         flattened = image[:, :, :3].astype(np.float32)
         flattened = flattened * alpha[:, :, None] + 255.0 * (1.0 - alpha[:, :, None])
         flattened = np.clip(np.rint(flattened), 0, 255).astype(np.uint8)
-        target_image = image.copy() if use_alpha_target else flattened
+        target_image = _prepare_transparent_target(image) if use_alpha_target else flattened
         mask = image[:, :, 3] >= mask_threshold
     else:
         target_image = image[:, :, :3].copy()
         mask = fs.extract_mask(target_image) > 0
-    return target_image, _clean_mask(mask), _ensure_bgra(target_image)
+    image_rgba = _ensure_bgra(image if image.ndim == 3 and image.shape[2] == 4 else target_image)
+    return target_image, _clean_mask(mask), image_rgba
 
 
 def _compute_bbox(mask):
@@ -214,6 +238,7 @@ def _parse_triangle(node, scale_x, scale_y, offset_x, offset_y):
         "type": "triangle",
         "cx": float(center[0]),
         "cy": float(center[1]),
+        "width": max(width, 1.0),
         "size": max(width, height, 1.0),
         "height": max(height, 1.0),
         "angle": angle,
@@ -322,6 +347,62 @@ def parse_primitive_svg(svg_path, scale_x=1.0, scale_y=1.0, offset_x=0.0, offset
     return results
 
 
+def _result_to_shape(result):
+    shape_type = str(result.get("type", "")).strip().lower()
+    if shape_type == "circle":
+        return fill_shaper.Circle(
+            cx=float(result.get("cx", 0.0)),
+            cy=float(result.get("cy", 0.0)),
+            radius_x=float(result.get("rx", 0.5)),
+            radius_y=float(result.get("ry", result.get("rx", 0.5))),
+            angle=float(result.get("angle", 0.0)),
+        )
+    if shape_type == "rect":
+        return fill_shaper.Rect(
+            cx=float(result.get("cx", 0.0)),
+            cy=float(result.get("cy", 0.0)),
+            half_width=float(result.get("hw", 0.5)),
+            half_height=float(result.get("hh", result.get("hw", 0.5))),
+            angle=float(result.get("angle", 0.0)),
+        )
+    if shape_type == "triangle":
+        width = float(result.get("width", result.get("size", 1.0)))
+        height = float(result.get("height", width))
+        return fill_shaper.Triangle(
+            cx=float(result.get("cx", 0.0)),
+            cy=float(result.get("cy", 0.0)),
+            base_width=width,
+            height=height,
+            angle=float(result.get("angle", 0.0)),
+        )
+    return None
+
+
+def _apply_alpha_weights_to_results(results, alpha_weights, width, height):
+    weights = np.clip(np.asarray(alpha_weights, dtype=np.float64), 0.0, 1.0)
+    if weights.shape != (height, width):
+        raise ValueError("alpha_weights shape mismatch")
+
+    weighted_results = []
+    for result in results:
+        weighted = dict(result)
+        shape = _result_to_shape(weighted)
+        if shape is None:
+            weighted_results.append(weighted)
+            continue
+
+        opacity = fill_shaper._shape_opacity(shape, weights, width=width, height=height)
+        if opacity <= MIN_VISIBLE_ALPHA_WEIGHT:
+            alpha = 0.0
+        else:
+            alpha = float(np.clip(float(weighted.get("alpha", 1.0)) * opacity, 0.0, 1.0))
+        weighted["alpha"] = alpha
+        if isinstance(weighted.get("color"), str):
+            weighted["packed_color"] = _pack_color(weighted["color"], alpha)
+        weighted_results.append(weighted)
+    return weighted_results
+
+
 def _render_preview(preview_image, full_width, full_height, alpha_map=None, transparent_output=False):
     if preview_image is None:
         raise ValueError("primitive output preview is missing")
@@ -396,7 +477,7 @@ def fit_image_with_primitive(image, config=None):
             "-o",
             png_path,
             "-a",
-            "128",
+            "0",
             "-r",
             "0",
             "-s",
@@ -416,6 +497,13 @@ def fit_image_with_primitive(image, config=None):
             raise ValueError("primitive 输出 PNG 读取失败")
 
     alpha_map = image[:, :, 3] if transparent_output and image.ndim == 3 and image.shape[2] == 4 else None
+    if alpha_map is not None and results:
+        results = _apply_alpha_weights_to_results(
+            results,
+            alpha_map.astype(np.float64) / 255.0,
+            full_width,
+            full_height,
+        )
     preview = _render_preview(
         preview_image,
         full_width,
