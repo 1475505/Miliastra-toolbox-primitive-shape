@@ -639,13 +639,8 @@ def download_overlimit_gia(tid):
         elif shape_type == "rect":
             shape_type = "rectangle"
 
-        rotation_raw = element.get("rotation", {})
-        if isinstance(rotation_raw, (int, float)):
-            rotation = {"x": 0, "y": 0, "z": round(-float(rotation_raw), 4)}
-        else:
-            rotation = rotation_raw or {}
-        center_raw = element.get("center", {}) or {}
-        center = center_raw
+        rotation = element.get("rotation", {}) or {}
+        center = element.get("center", {}) or {}
         exported = {
             "type": shape_type,
             "relative": {
