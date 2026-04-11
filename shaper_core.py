@@ -224,7 +224,11 @@ def process_image_fill(image_bytes, config=None):
                 "width": round(width * unit_scale, 4),
                 "height": round(height * unit_scale, 4),
             },
-            "rotation": 0.0,
+            "rotation": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0,
+            },
             "color": "#ffffff",
             "alpha": 1.0,
             "packed_color": 0xFFFFFFFF,  # 白色不透明
