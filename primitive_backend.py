@@ -47,6 +47,14 @@ def _pack_color(color_hex, alpha):
     )
 
 
+def _ensure_bgra(image):
+    if image.ndim == 2:
+        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGRA)
+    if image.shape[2] == 4:
+        return image.copy()
+    return cv2.cvtColor(image[:, :, :3], cv2.COLOR_BGR2BGRA)
+
+
 def ensure_primitive_binary():
     binary_name = "primitive.exe" if os.name == "nt" else "primitive"
     candidate_bins = [
@@ -123,6 +131,7 @@ def _clean_mask(mask):
 
 
 def _extract_image_and_mask(image, mask_threshold):
+    display_rgba = _ensure_bgra(image)
     if image.ndim == 2:
         image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         mask = fs.extract_mask(image_bgr) > 0
@@ -135,7 +144,7 @@ def _extract_image_and_mask(image, mask_threshold):
     else:
         image_bgr = image[:, :, :3].copy()
         mask = fs.extract_mask(image_bgr) > 0
-    return image_bgr, _clean_mask(mask)
+    return image_bgr, _clean_mask(mask), display_rgba
 
 
 def _compute_bbox(mask):
@@ -313,13 +322,19 @@ def parse_primitive_svg(svg_path, scale_factor=1.0, offset_x=0.0, offset_y=0.0):
     return results
 
 
-def _render_preview_on_canvas(preview_crop, full_width, full_height, bbox):
+def _render_preview_on_canvas(preview_crop, full_width, full_height, bbox, full_mask):
     x0, y0, x1, y1 = bbox
-    canvas = np.full((full_height, full_width, 3), 255, dtype=np.uint8)
+    canvas = np.zeros((full_height, full_width, 4), dtype=np.uint8)
     crop_h = max(y1 - y0, 1)
     crop_w = max(x1 - x0, 1)
     resized = cv2.resize(preview_crop, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
-    canvas[y0:y1, x0:x1] = resized
+    resized_mask = cv2.resize(
+        (full_mask[y0:y1, x0:x1].astype(np.uint8) * 255),
+        (crop_w, crop_h),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    canvas[y0:y1, x0:x1, :3] = resized
+    canvas[y0:y1, x0:x1, 3] = resized_mask
     return canvas
 
 
@@ -331,7 +346,7 @@ def fit_image_with_primitive(image, config=None):
     mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
     num_primitives = int(max(1, config.get("num_primitives", 400)))
 
-    image_bgr, mask = _extract_image_and_mask(image, mask_threshold)
+    image_bgr, mask, image_rgba = _extract_image_and_mask(image, mask_threshold)
     full_height, full_width = image_bgr.shape[:2]
     x0, y0, x1, y1 = _compute_bbox(mask)
     crop_bgr = image_bgr[y0:y1, x0:x1].copy()
@@ -383,11 +398,12 @@ def fit_image_with_primitive(image, config=None):
         if preview_crop is None:
             raise ValueError("primitive 输出 PNG 读取失败")
 
-    preview = _render_preview_on_canvas(preview_crop, full_width, full_height, (x0, y0, x1, y1))
+    preview = _render_preview_on_canvas(preview_crop, full_width, full_height, (x0, y0, x1, y1), mask)
     return {
         "results": results,
         "preview": preview,
         "image_bgr": image_bgr,
+        "image_rgba": image_rgba,
         "mask": mask,
         "bbox": {
             "x": x0,

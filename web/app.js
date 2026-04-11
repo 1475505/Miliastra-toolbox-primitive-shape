@@ -162,8 +162,6 @@
 
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.clearRect(0, 0, imageWidth, imageHeight);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, imageWidth, imageHeight);
 
     if ($("showImage").checked && assets.base) {
       ctx.drawImage(assets.base, 0, 0, imageWidth, imageHeight);

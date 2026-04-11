@@ -84,6 +84,7 @@ def process_image_fill(image_bytes, config=None):
     results = primitive_fit["results"]
     preview = primitive_fit["preview"]
     image_bgr = primitive_fit["image_bgr"]
+    image_rgba = primitive_fit.get("image_rgba", image_bgr)
     mask = primitive_fit["mask"]
     elements = fill_shaper.results_to_elements(
         results,
@@ -138,7 +139,7 @@ def process_image_fill(image_bytes, config=None):
         },
         "elements_count": len(elements),
         "elements": elements,
-        "image_base64": _encode_png_base64(image_bgr),
+        "image_base64": _encode_png_base64(image_rgba),
         "preview_base64": _encode_png_base64(preview),
         "mask_base64": _encode_png_base64(mask.astype(np.uint8) * 255),
         "elapsed_seconds": round(time.time() - started, 2),
