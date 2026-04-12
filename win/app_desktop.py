@@ -8,6 +8,7 @@ import sys
 import os
 import threading
 import socket
+import base64
 
 # 确保从项目根目录导入（上级目录）
 if getattr(sys, 'frozen', False):
@@ -24,6 +25,31 @@ else:
 
 sys.path.insert(0, BASE_DIR)
 os.chdir(BASE_DIR)
+
+
+def _decode_data_payload(payload):
+    if not payload:
+        raise ValueError("empty payload")
+    if payload.startswith("data:"):
+        _, payload = payload.split(",", 1)
+    return base64.b64decode(payload)
+
+
+class DesktopApi:
+    def save_bytes(self, payload, filename):
+        import webview
+
+        selected = webview.windows[0].create_file_dialog(
+            webview.SAVE_DIALOG,
+            save_filename=filename or "shaper_result",
+        )
+        if not selected:
+            return {"ok": False, "cancelled": True}
+
+        path = selected if isinstance(selected, str) else selected[0]
+        with open(path, "wb") as f:
+            f.write(_decode_data_payload(payload))
+        return {"ok": True, "path": path}
 
 
 def find_free_port():
@@ -64,6 +90,7 @@ def main():
     window = webview.create_window(
         title='Shaper — 轮廓描边工具',
         url=url,
+        js_api=DesktopApi(),
         width=1280,
         height=800,
         min_size=(960, 600),

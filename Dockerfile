@@ -26,6 +26,11 @@ RUN grep -v "pywebview" requirements.txt > requirements.tmp && \
 # 复制项目文件
 COPY . .
 
+# 设置 Go 编译环境变量以优化性能
+ENV GOOS=linux \
+    GOARCH=amd64 \
+    CGO_ENABLED=1
+
 RUN python -c "import primitive_backend; primitive_backend.ensure_primitive_binary()" && \
     python build_pyc.py
 

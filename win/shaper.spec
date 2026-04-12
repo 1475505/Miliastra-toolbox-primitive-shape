@@ -9,15 +9,26 @@ project_dir = spec_dir.parent
 win_dir = spec_dir
 gia_dir = project_dir / "gia"
 web_dir = project_dir / "web"
+tools_dir = project_dir / "tools"
+primitive_bin = tools_dir / "primitive.exe"
+bundled_go_dir = tools_dir / "go"
+
+datas = [
+    (str(web_dir), "web"),
+    (str(gia_dir / "image_template.gia"), "gia"),
+]
+
+if primitive_bin.exists():
+    datas.append((str(primitive_bin), "tools"))
+
+if bundled_go_dir.exists():
+    datas.append((str(bundled_go_dir), "tools/go"))
 
 a = Analysis(
     [str(win_dir / "app_desktop.py")],
     pathex=[str(project_dir), str(gia_dir)],
     binaries=[],
-    datas=[
-        (str(web_dir), "web"),
-        (str(gia_dir / "image_template.gia"), "gia"),
-    ],
+    datas=datas,
     hiddenimports=[
         "server",
         "shaper_core",

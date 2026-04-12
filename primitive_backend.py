@@ -96,12 +96,16 @@ def ensure_primitive_binary():
         capture_output=True,
         text=True,
     )
+    # 使用优化标志构建：启用CGO和编译器优化
+    build_env = os.environ.copy()
+    build_env["CGO_ENABLED"] = "1"
     subprocess.run(
-        [go_exe, "build", "-o", output_path, "."],
+        [go_exe, "build", "-ldflags", "-s -w", "-gcflags", "-l=4", "-o", output_path, "."],
         cwd=PRIMITIVE_SRC,
         check=True,
         capture_output=True,
         text=True,
+        env=build_env,
     )
     if not os.path.exists(output_path):
         raise FileNotFoundError(f"{binary_name} 构建失败")
@@ -462,6 +466,11 @@ def fit_image_with_primitive(image, config=None):
     scale_y = full_height / float(work_height)
     shape_configs = _build_shape_configs(config.get("allowed_shapes", ["circle"]), num_primitives)
 
+    # 获取可用的worker数量（优先使用环境变量，其次CPU核心数）
+    workers = int(config.get("workers", 0))
+    if workers < 1:
+        workers = os.cpu_count() or 1
+
     with tempfile.TemporaryDirectory(prefix="primitive_fit_") as tmpdir:
         input_path = os.path.join(tmpdir, "input.png")
         svg_path = os.path.join(tmpdir, "output.svg")
@@ -482,6 +491,8 @@ def fit_image_with_primitive(image, config=None):
             "0",
             "-s",
             str(output_size),
+            "-j",
+            str(workers),
         ]
         if transparent_output:
             cmd.extend(["-bg", "ffffff00"])

@@ -50,6 +50,12 @@ if errorlevel 1 (
 )
 
 echo [3/4] Building Windows app...
+if not exist "tools\primitive.exe" (
+    echo [ERROR] Missing bundled primitive binary: tools\primitive.exe
+    echo         Build or restore that file before packaging the Windows app.
+    exit /b 1
+)
+
 "%VENV_PY%" -m PyInstaller win\shaper.spec --clean --noconfirm
 if errorlevel 1 (
     echo [ERROR] PyInstaller build failed.

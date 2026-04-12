@@ -338,10 +338,34 @@
     URL.revokeObjectURL(anchor.href);
   }
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error("failed to read blob"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function saveBlob(blob, name) {
+    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_bytes === "function") {
+      const payload = await blobToDataUrl(blob);
+      const result = await window.pywebview.api.save_bytes(payload, name);
+      if (!result || !result.ok) {
+        if (result && result.cancelled) return false;
+        throw new Error("desktop save failed");
+      }
+      return true;
+    }
+
+    downloadBlob(blob, name);
+    return true;
+  }
+
   function downloadBase64(base64, name) {
     fetch("data:image/png;base64," + base64)
       .then((response) => response.blob())
-      .then((blob) => downloadBlob(blob, name));
+      .then((blob) => saveBlob(blob, name));
   }
 
   function updateStats() {
@@ -498,7 +522,7 @@
   }
 
   if ($("btnExportJSON")) {
-    $("btnExportJSON").addEventListener("click", () => {
+    $("btnExportJSON").addEventListener("click", async () => {
       const originUnits = { x: origin.x / pixelPerUnit, y: -origin.y / pixelPerUnit };
       const payload = {
         image_name: exportBaseName || null,
@@ -527,14 +551,29 @@
           name: element.name,
         })),
       };
-      downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), exportFileName("json"));
+      try {
+        await saveBlob(
+          new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+          exportFileName("json"),
+        );
+      } catch (error) {
+        alert(`导出失败: ${error && error.message ? error.message : error}`);
+      }
     });
   }
 
   if ($("btnExportPNG")) {
     $("btnExportPNG").addEventListener("click", () => {
-      canvas.toBlob((blob) => {
-        if (blob) downloadBlob(blob, exportFileName("png"));
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          alert("导出失败: PNG 生成失败");
+          return;
+        }
+        try {
+          await saveBlob(blob, exportFileName("png"));
+        } catch (error) {
+          alert(`导出失败: ${error && error.message ? error.message : error}`);
+        }
       }, "image/png");
     });
   }
@@ -552,7 +591,7 @@
           }
           return response.blob();
         })
-        .then((blob) => downloadBlob(blob, exportFileName("gia")))
+        .then((blob) => saveBlob(blob, exportFileName("gia")))
         .catch((error) => alert(`导出失败: ${error && error.message ? error.message : error}`));
     });
   }
