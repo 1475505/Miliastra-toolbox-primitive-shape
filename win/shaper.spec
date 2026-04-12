@@ -11,7 +11,6 @@ gia_dir = project_dir / "gia"
 web_dir = project_dir / "web"
 tools_dir = project_dir / "tools"
 primitive_bin = tools_dir / "primitive.exe"
-bundled_go_dir = tools_dir / "go"
 
 datas = [
     (str(web_dir), "web"),
@@ -20,9 +19,6 @@ datas = [
 
 if primitive_bin.exists():
     datas.append((str(primitive_bin), "tools"))
-
-if bundled_go_dir.exists():
-    datas.append((str(bundled_go_dir), "tools/go"))
 
 a = Analysis(
     [str(win_dir / "app_desktop.py")],
@@ -35,7 +31,6 @@ a = Analysis(
         "fill_shaper",
         "final_shaper",
         "json_to_gia",
-        "scipy.special.cython_special",
         "shapely",
         "shapely.geometry",
         "shapely.algorithms",
@@ -50,6 +45,7 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "cefpython3",
+        "scipy",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
