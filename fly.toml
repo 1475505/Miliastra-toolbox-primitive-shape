@@ -1,19 +1,23 @@
-app = "miliastra-toolbox-primitive-shape"
-primary_region = "hkg"
+# fly.toml app configuration file generated for miliastra-toolbox-primitive-shape on 2026-04-12T04:19:13Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'miliastra-toolbox-primitive-shape'
+primary_region = 'ord'
 
 [build]
-
-[env]
-  PORT = "5555"
 
 [http_service]
   internal_port = 5555
   force_https = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  auto_stop_machines = "off"
-  min_machines_running = 1
+  min_machines_running = 0
+  processes = ['app']
 
 [[vm]]
-  cpu_kind = "shared"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 2048
+  memory_mb = 1024
