@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 import cv2
@@ -14,6 +16,8 @@ import numpy as np
 import fill_shaper
 import final_shaper as fs
 
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PRIMITIVE_SRC = os.path.join(BASE_DIR, "third_party", "primitive")
@@ -435,6 +439,7 @@ def fit_image_with_primitive(image, config=None):
     if config is None:
         config = {}
 
+    started = time.perf_counter()
     primitive_exe = ensure_primitive_binary()
     mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
     num_primitives = int(max(1, config.get("num_primitives", 400)))
@@ -471,6 +476,23 @@ def fit_image_with_primitive(image, config=None):
     if workers < 1:
         workers = os.cpu_count() or 1
 
+    logger.info(
+        "primitive_fit start image=%dx%d work=%dx%d output_size=%d detail_scale=%.3f "
+        "num_primitives=%d shapes=%s workers=%d cpu_count=%s transparent=%s exe=%s",
+        full_width,
+        full_height,
+        work_width,
+        work_height,
+        output_size,
+        detail_scale,
+        num_primitives,
+        [name for name, _ in zip(_normalize_allowed_shapes(config.get("allowed_shapes", ["circle"])), shape_configs)],
+        workers,
+        os.cpu_count(),
+        transparent_output,
+        primitive_exe,
+    )
+
     with tempfile.TemporaryDirectory(prefix="primitive_fit_") as tmpdir:
         input_path = os.path.join(tmpdir, "input.png")
         svg_path = os.path.join(tmpdir, "output.svg")
@@ -500,7 +522,22 @@ def fit_image_with_primitive(image, config=None):
             cmd.extend(["-bg", "ffffff"])
         for mode, count in shape_configs:
             cmd.extend(["-m", str(mode), "-n", str(count)])
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        primitive_started = time.perf_counter()
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            logger.exception(
+                "primitive_fit failed after %.3fs returncode=%s stdout_tail=%r stderr_tail=%r",
+                time.perf_counter() - primitive_started,
+                exc.returncode,
+                (exc.stdout or "")[-400:],
+                (exc.stderr or "")[-400:],
+            )
+            raise
+        logger.info(
+            "primitive_fit subprocess_done elapsed=%.3fs",
+            time.perf_counter() - primitive_started,
+        )
 
         results = parse_primitive_svg(svg_path, scale_x=scale_x, scale_y=scale_y)
         preview_image = cv2.imread(png_path, cv2.IMREAD_UNCHANGED)
@@ -521,6 +558,14 @@ def fit_image_with_primitive(image, config=None):
         full_height,
         alpha_map=alpha_map,
         transparent_output=transparent_output,
+    )
+    logger.info(
+        "primitive_fit done elapsed=%.3fs results=%d bbox=%dx%d fit_size=%d",
+        time.perf_counter() - started,
+        len(results),
+        max(1, x1 - x0),
+        max(1, y1 - y0),
+        canvas_limit,
     )
     return {
         "results": results,

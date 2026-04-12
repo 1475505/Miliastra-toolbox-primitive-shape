@@ -16,6 +16,26 @@
 
 使用方式请参考[user_guide.md](user_guide.md)
 
+## Quick Start
+
+先安装依赖：
+
+```bash
+pip install flask
+```
+
+
+```bash
+python server.py
+```
+
+若提示primitive的不可用,可自行源码编译. 或准备 `primitive` 可执行文件并放到 `tools/` 目录下:
+- 官方仓库：https://github.com/fogleman/primitive/
+- 安装 Go 后执行：`go install github.com/fogleman/primitive@latest`
+- Windows 放 `tools/primitive.exe`
+- Linux/macOS 放 `tools/primitive`
+- 没有这个文件时，应用在实际处理图片时会失败。
+
 ## 信息
 
 ### 圆形

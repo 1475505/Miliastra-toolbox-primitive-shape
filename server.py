@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sys
 import threading
@@ -24,6 +25,13 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 import shaper_core
+
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "web"), static_url_path="/web")
@@ -508,16 +516,41 @@ def submit():
         "image_name": image_name,
         "config": cfg,
     }
+    logger.info(
+        "task_submit id=%s mode=%s filename=%s bytes=%d cfg=%s",
+        task_id,
+        mode,
+        upload.filename or "",
+        len(blob),
+        {
+            "num_primitives": cfg.get("num_primitives"),
+            "detail_scale": cfg.get("detail_scale"),
+            "allowed_shapes": cfg.get("allowed_shapes"),
+            "primitive_size": cfg.get("primitive_size"),
+            "spacing": cfg.get("spacing"),
+            "precision": cfg.get("precision"),
+            "enable_png_mode": cfg.get("enable_png_mode"),
+        },
+    )
 
     def worker():
+        started = time.perf_counter()
         try:
+            logger.info("task_start id=%s mode=%s", task_id, cfg.get("mode", "fill"))
             result = shaper_core.process_image(blob, cfg)
             tasks[task_id]["result"] = result
             tasks[task_id]["status"] = "done"
+            logger.info(
+                "task_done id=%s elapsed=%.3fs elements=%s",
+                task_id,
+                time.perf_counter() - started,
+                result.get("elements_count"),
+            )
         except Exception as exc:
             traceback.print_exc()
             tasks[task_id]["error"] = str(exc)
             tasks[task_id]["status"] = "error"
+            logger.exception("task_error id=%s elapsed=%.3fs", task_id, time.perf_counter() - started)
 
     threading.Thread(target=worker, daemon=True).start()
     return redirect(f"/status/{task_id}")
@@ -559,16 +592,39 @@ def retry(tid):
         "image_name": old_task.get("image_name", ""),
         "config": cfg,
     }
+    logger.info(
+        "task_retry old_id=%s new_id=%s mode=%s cfg=%s",
+        tid,
+        new_id,
+        mode,
+        {
+            "num_primitives": cfg.get("num_primitives"),
+            "detail_scale": cfg.get("detail_scale"),
+            "allowed_shapes": cfg.get("allowed_shapes"),
+            "primitive_size": cfg.get("primitive_size"),
+            "spacing": cfg.get("spacing"),
+            "precision": cfg.get("precision"),
+        },
+    )
 
     def worker():
+        started = time.perf_counter()
         try:
+            logger.info("task_start id=%s mode=%s", new_id, cfg.get("mode", "fill"))
             result = shaper_core.process_image(old_task["image_bytes"], cfg)
             tasks[new_id]["result"] = result
             tasks[new_id]["status"] = "done"
+            logger.info(
+                "task_done id=%s elapsed=%.3fs elements=%s",
+                new_id,
+                time.perf_counter() - started,
+                result.get("elements_count"),
+            )
         except Exception as exc:
             traceback.print_exc()
             tasks[new_id]["error"] = str(exc)
             tasks[new_id]["status"] = "error"
+            logger.exception("task_error id=%s elapsed=%.3fs", new_id, time.perf_counter() - started)
 
     threading.Thread(target=worker, daemon=True).start()
     return redirect(f"/status/{new_id}")

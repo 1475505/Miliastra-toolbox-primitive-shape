@@ -8,6 +8,7 @@ Outline mode is kept for compatibility with the older path-walking pipeline.
 from __future__ import annotations
 
 import base64
+import logging
 import math
 import time
 
@@ -18,6 +19,9 @@ from shapely.geometry import Polygon
 import fill_shaper
 import final_shaper as fs
 import primitive_backend
+
+
+logger = logging.getLogger(__name__)
 
 
 def _encode_png_base64(image):
@@ -141,6 +145,7 @@ def process_image_fill(image_bytes, config=None):
         config = {}
 
     started = time.time()
+    perf_started = time.perf_counter()
     image = _decode_image(image_bytes)
     height, width = image.shape[:2]
     image_center = _resolve_origin(config, width, height)
@@ -153,6 +158,19 @@ def process_image_fill(image_bytes, config=None):
     mask_threshold = int(max(1, min(254, config.get("mask_threshold", 127))))
     transparent_output = png_with_transparency and enable_png_mode
     needs_white_background = png_with_transparency and not enable_png_mode
+
+    logger.info(
+        "fill_process start image=%dx%d mode=%s png_mode=%s transparent_src=%s "
+        "num_primitives=%s detail_scale=%s allowed_shapes=%s",
+        width,
+        height,
+        config.get("mode", "fill"),
+        enable_png_mode,
+        has_transparent_alpha,
+        config.get("num_primitives", 400),
+        config.get("detail_scale", 1.0),
+        config.get("allowed_shapes", ["circle"]),
+    )
 
     if transparent_output:
         fit_variant = "png"
@@ -227,6 +245,17 @@ def process_image_fill(image_bytes, config=None):
     mask_height = max(1, y1 - y0)
     mask_center_x = (x0 + x1) / 2.0
     mask_center_y = (y0 + y1) / 2.0
+    elapsed = time.time() - started
+    logger.info(
+        "fill_process done elapsed=%.3fs elements=%d fit_variant=%s mask_bbox=%dx%d preview=%dx%d",
+        time.perf_counter() - perf_started,
+        len(elements),
+        fit_variant,
+        mask_width,
+        mask_height,
+        preview.shape[1],
+        preview.shape[0],
+    )
 
     return {
         "mode": "fill",
@@ -271,7 +300,7 @@ def process_image_fill(image_bytes, config=None):
         "image_base64": _encode_png_base64(browser_image),
         "preview_base64": _encode_png_base64(preview),
         "mask_base64": _encode_png_base64((coverage_for_bbox.astype(np.uint8) * 255)) if mask_enabled else None,
-        "elapsed_seconds": round(time.time() - started, 2),
+        "elapsed_seconds": round(elapsed, 2),
     }
 
 
@@ -280,9 +309,19 @@ def process_image_outline(image_bytes, config=None):
         config = {}
 
     started = time.time()
+    perf_started = time.perf_counter()
     image = _decode_image(image_bytes)
     height, width = image.shape[:2]
     image_center = _resolve_origin(config, width, height)
+    logger.info(
+        "outline_process start image=%dx%d primitive_size=%s spacing=%s precision=%s allowed_shapes=%s",
+        width,
+        height,
+        config.get("primitive_size", 30),
+        config.get("spacing", 0.9),
+        config.get("precision", 0.3),
+        config.get("allowed_shapes"),
+    )
 
     primitive_size = max(3, min(200, config.get("primitive_size", 15)))
     min_size = max(2, int(primitive_size * 0.4))
@@ -443,6 +482,13 @@ def process_image_outline(image_bytes, config=None):
 
         exported_elements.append(item)
 
+    elapsed = time.time() - started
+    logger.info(
+        "outline_process done elapsed=%.3fs elements=%d contours=%d",
+        time.perf_counter() - perf_started,
+        len(exported_elements),
+        len(contours),
+    )
     return {
         "mode": "outline",
         "image_center": {"x": image_center[0], "y": image_center[1]},
@@ -458,5 +504,5 @@ def process_image_outline(image_bytes, config=None):
         "elements": exported_elements,
         "image_base64": _encode_png_base64(image_bgr),
         "mask_base64": _encode_png_base64(mask),
-        "elapsed_seconds": round(time.time() - started, 2),
+        "elapsed_seconds": round(elapsed, 2),
     }
