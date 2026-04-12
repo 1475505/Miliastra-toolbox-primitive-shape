@@ -67,6 +67,7 @@
   const shapeHint = $("shapeHint");
 
   let currentMode = "fill";
+  let activePreviewUrl = null;
 
   function getPresetList(shape) {
     return PRESETS[shape] || PRESETS.circle;
@@ -413,31 +414,80 @@
     });
   }
 
-  function attachFile(file) {
+  async function readImageDimensions(file) {
+    if (!file) return null;
+
+    if (window.createImageBitmap) {
+      try {
+        const bitmap = await window.createImageBitmap(file);
+        const size = { width: bitmap.width, height: bitmap.height };
+        bitmap.close();
+        return size;
+      } catch (error) {
+        // Fall back to Image() decoding below.
+      }
+    }
+
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        const size = { width: image.naturalWidth, height: image.naturalHeight };
+        URL.revokeObjectURL(url);
+        resolve(size);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      image.src = url;
+    });
+  }
+
+  function renderImageDimensions(dimensions) {
+    const dimensionText = dimensions
+      ? `${dimensions.width} × ${dimensions.height} px`
+      : "分辨率读取失败";
+
+    if (imgSize) {
+      imgSize.textContent = "";
+    }
+
+    if (readyTag) {
+      readyTag.hidden = false;
+      readyTag.textContent = dimensions
+        ? `已选择图片 · ${dimensionText}`
+        : "已选择图片 · 分辨率读取失败";
+    }
+  }
+
+  async function attachFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
     const transfer = new DataTransfer();
     transfer.items.add(file);
     fileInput.files = transfer.files;
 
     if (fileName) fileName.textContent = file.name;
+    if (imgSize) imgSize.textContent = "";
     if (preview) {
+      if (activePreviewUrl) {
+        URL.revokeObjectURL(activePreviewUrl);
+        activePreviewUrl = null;
+      }
       const url = URL.createObjectURL(file);
+      activePreviewUrl = url;
       preview.src = url;
       preview.hidden = false;
-      // 读取图片分辨率
-      const img = new Image();
-      img.onload = () => {
-        if (imgSize) {
-          imgSize.textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
-        }
-        URL.revokeObjectURL(url);
-      };
-      img.src = url;
     }
+
     if (readyTag) {
       readyTag.hidden = false;
-      readyTag.textContent = "已选择图片";
+      readyTag.textContent = "已选择图片 · 读取分辨率中...";
     }
+
+    const dimensions = await readImageDimensions(file);
+    renderImageDimensions(dimensions);
+
     if (dropZone) dropZone.classList.add("ready");
     if (submitButton) submitButton.classList.add("ready");
   }
@@ -451,15 +501,17 @@
   const numPrimsManual = $("numPrimsManual");
   const numPrimsVal = $("numPrimsVal");
   if (numPrimsSlider && numPrimsManual) {
+    numPrimsSlider.max = "1500";
     numPrimsSlider.addEventListener("input", () => {
       numPrimsManual.value = numPrimsSlider.value;
+      if (numPrimsVal) numPrimsVal.textContent = numPrimsSlider.value;
     });
     numPrimsManual.addEventListener("input", () => {
       const value = Number.parseInt(numPrimsManual.value, 10);
       if (!Number.isNaN(value) && value >= 40 && value <= 1500) {
         numPrimsSlider.value = String(value);
       }
-      if (numPrimsVal) numPrimsVal.textContent = numPrimsManual.value;
+      if (numPrimsVal) numPrimsVal.textContent = numPrimsSlider.value;
     });
   }
 
