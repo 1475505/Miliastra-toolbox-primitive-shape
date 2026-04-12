@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import compileall
+import py_compile
 from pathlib import Path
 
 
@@ -32,6 +33,15 @@ def main() -> int:
     ok = True
     for target in targets:
         ok = compile_path(target) and ok
+
+    # Keep the tracked side-by-side pyc in sync for environments that ship it.
+    gia_src = ROOT / "gia" / "json_to_gia.py"
+    gia_pyc = ROOT / "gia" / "json_to_gia.pyc"
+    if gia_src.exists():
+        try:
+            py_compile.compile(str(gia_src), cfile=str(gia_pyc), doraise=True)
+        except py_compile.PyCompileError:
+            ok = False
     return 0 if ok else 1
 
 
