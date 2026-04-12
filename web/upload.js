@@ -456,7 +456,7 @@
     });
     numPrimsManual.addEventListener("input", () => {
       const value = Number.parseInt(numPrimsManual.value, 10);
-      if (!Number.isNaN(value) && value >= 40 && value <= 2000) {
+      if (!Number.isNaN(value) && value >= 40 && value <= 1500) {
         numPrimsSlider.value = String(value);
       }
       if (numPrimsVal) numPrimsVal.textContent = numPrimsManual.value;

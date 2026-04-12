@@ -162,7 +162,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span id="numPrimsVal" class="val-tag">400</span>
               </div>
               <p class="param-desc">越多越细，但耗时也更高。</p>
-              <input type="range" name="num_primitives" id="numPrims" min="40" max="2000" step="10" value="400">
+              <input type="range" name="num_primitives" id="numPrims" min="40" max="1500" step="10" value="400">
               <input type="number" name="num_primitives_manual" id="numPrimsManual" min="40" max="3000" value="400" class="num-input" style="margin-top:8px;width:100%;">
             </div>
 
