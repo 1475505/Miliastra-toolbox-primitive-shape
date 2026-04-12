@@ -104,6 +104,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
             <input type="file" id="fileInput" name="image" accept="image/*" required hidden>
             <img id="prev" class="preview-img" hidden>
             <span id="fname" class="file-name"></span>
+            <span id="imgSize" class="img-size"></span>
             <div id="uploadReady" class="upload-ready" hidden>已选择图片</div>
           </div>
           <p class="hint">支持 PNG / JPG / WEBP。仅在开启 PNG 模式时才会直接使用透明通道；否则会先铺白底，再生成遮罩。</p>

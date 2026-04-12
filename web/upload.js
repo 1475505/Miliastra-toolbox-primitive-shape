@@ -45,6 +45,7 @@
   const fileInput = $("fileInput");
   const preview = $("prev");
   const fileName = $("fname");
+  const imgSize = $("imgSize");
   const readyTag = $("uploadReady");
   const submitButton = $("btnSubmit");
   const form = $("mainForm");
@@ -420,8 +421,18 @@
 
     if (fileName) fileName.textContent = file.name;
     if (preview) {
-      preview.src = URL.createObjectURL(file);
+      const url = URL.createObjectURL(file);
+      preview.src = url;
       preview.hidden = false;
+      // 读取图片分辨率
+      const img = new Image();
+      img.onload = () => {
+        if (imgSize) {
+          imgSize.textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
+        }
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
     }
     if (readyTag) {
       readyTag.hidden = false;
