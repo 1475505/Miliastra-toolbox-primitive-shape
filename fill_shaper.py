@@ -24,6 +24,13 @@ class ShapeType:
     TRIANGLE = "triangle"
 
 
+DEFAULT_IMAGE_ASSET_REFS = {
+    ShapeType.CIRCLE: 100002,
+    ShapeType.RECT: 100001,
+    ShapeType.TRIANGLE: 100003,
+}
+
+
 @dataclass
 class FillConfig:
     num_primitives: int = 100
@@ -728,7 +735,7 @@ def results_to_elements(results, unit_scale, img_center, primitives_config=None,
             preset.get("image_asset_ref")
             or preset.get("asset_id")
             or result.get("image_asset_ref")
-            or 100002
+            or DEFAULT_IMAGE_ASSET_REFS.get(shape_key, 100002)
         )
         packed_color = _pack_color(color_hex, alpha)
 

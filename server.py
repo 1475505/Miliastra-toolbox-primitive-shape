@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -39,6 +40,12 @@ app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
 tasks = {}
 
+DEFAULT_IMAGE_ASSET_REFS = {
+    "rectangle": 100001,
+    "ellipse": 100002,
+    "triangle": 100003,
+}
+
 
 def cleanup():
     now = time.time()
@@ -64,6 +71,183 @@ def _export_basename(image_name):
 def _attachment_filename(filename):
     safe_ascii = "".join(ch if ch.isascii() and ch not in {'"', "\\"} else "_" for ch in filename) or "download"
     return f"attachment; filename={safe_ascii}; filename*=UTF-8''{quote(filename)}"
+
+
+def _convert_result_to_gia_bytes(result_data, cfg=None, image_name="", origin_x=None, origin_y=None):
+    cfg = cfg or {}
+    pixel_per_unit = float(result_data.get("config", {}).get("pixel_per_unit") or cfg.get("primitive_size") or 1.0)
+    origin_default = result_data.get("image_center", {"x": 0, "y": 0})
+    resolved_origin_x = float(origin_default.get("x", 0) if origin_x is None else origin_x)
+    resolved_origin_y = float(origin_default.get("y", 0) if origin_y is None else origin_y)
+
+    origin_units_x = resolved_origin_x / pixel_per_unit
+    origin_units_y = -resolved_origin_y / pixel_per_unit
+
+    elements = []
+    for element in result_data.get("elements", []):
+        shape_type = element.get("type")
+        if shape_type == "circle":
+            shape_type = "ellipse"
+        elif shape_type == "rect":
+            shape_type = "rectangle"
+
+        rotation = element.get("rotation", {}) or {}
+        center = element.get("center", {}) or {}
+        exported = {
+            "type": shape_type,
+            "relative": {
+                "x": float(center.get("x", 0)) - origin_units_x,
+                "y": float(center.get("y", 0)) - origin_units_y,
+            },
+            "size": element.get("size", {}),
+            "rotation": rotation,
+            "color": element.get("color"),
+            "alpha": element.get("alpha"),
+            "packed_color": element.get("packed_color"),
+            "image_asset_ref": element.get("image_asset_ref", DEFAULT_IMAGE_ASSET_REFS.get(shape_type, 100002)),
+        }
+        if element.get("type_id") is not None:
+            exported["type_id"] = int(element["type_id"])
+        elif element.get("element_type_id") is not None:
+            exported["type_id"] = int(element["element_type_id"])
+        if element.get("element_type_id") is not None:
+            exported["element_type_id"] = int(element["element_type_id"])
+        if rotation.get("y") is not None:
+            exported["rot_y_add"] = float(rotation.get("y", 0))
+        elements.append(exported)
+
+    mask_cfg = None
+    mask_data = result_data.get("mask") or {}
+    if mask_data:
+        mask_center = mask_data.get("center") or {}
+        mask_size = mask_data.get("size") or {}
+        mask_cfg = {
+            "enabled": bool(mask_data.get("enabled", False)),
+            "shape_type": mask_data.get("shape_type", "rectangle"),
+            "center": {
+                "x": float(mask_center.get("x", 0)) - origin_units_x,
+                "y": float(mask_center.get("y", 0)) - origin_units_y,
+            },
+            "size": {
+                "width": float(mask_size.get("width", 0)),
+                "height": float(mask_size.get("height", 0)),
+            },
+        }
+
+    json_data = {
+        "elements": elements,
+        "mask": mask_cfg,
+        "group_name": _export_basename(image_name),
+    }
+
+    mod = _load_json_to_gia()
+    return mod.convert_json_to_gia_bytes(
+        json_data=json_data,
+        base_gia_path=os.path.join(BASE_DIR, "gia", "image_template.gia"),
+        mode=mod.MODE_IMAGE,
+    )
+
+
+def _parse_cli_shape_list(shape_args):
+    allowed = []
+    for shape in shape_args or []:
+        normalized = str(shape).strip().lower()
+        if normalized in ("circle", "rect", "triangle") and normalized not in allowed:
+            allowed.append(normalized)
+    return allowed or ["circle"]
+
+
+def _build_cli_config(args, input_path):
+    source_ext = os.path.splitext(input_path)[1].lower()
+    cfg = {
+        "mode": args.mode,
+        "source_filename": os.path.basename(input_path),
+        "source_ext": source_ext,
+        "origin": {
+            "type": "custom" if args.origin_x is not None or args.origin_y is not None else "center",
+            "x": 0 if args.origin_x is None else float(args.origin_x),
+            "y": 0 if args.origin_y is None else float(args.origin_y),
+        },
+    }
+
+    if args.mode == "fill":
+        cfg["num_primitives"] = max(40, min(3000, int(args.num_primitives)))
+        cfg["mask_threshold"] = int(args.mask_threshold)
+        cfg["detail_scale"] = float(args.detail_scale)
+        cfg["image_scale"] = float(args.image_scale)
+        cfg["output_alpha"] = float(args.output_alpha) / 100.0
+        cfg["enable_png_mode"] = bool(args.enable_png_mode)
+        cfg["allowed_shapes"] = _parse_cli_shape_list(args.shape)
+    else:
+        cfg["primitive_size"] = float(args.primitive_size)
+        cfg["spacing"] = float(args.spacing)
+        cfg["precision"] = float(args.precision)
+        cfg["allowed_shapes"] = [shape for shape in _parse_cli_shape_list(args.shape) if shape in ("circle", "rect")] or ["circle"]
+    return cfg
+
+
+def _default_cli_output_path(input_path):
+    base_name = _export_basename(input_path)
+    return os.path.join(os.getcwd(), f"{base_name}.gia")
+
+
+def _run_cli(args):
+    input_path = os.path.abspath(args.input)
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"input image not found: {input_path}")
+
+    with open(input_path, "rb") as f:
+        image_bytes = f.read()
+
+    cfg = _build_cli_config(args, input_path)
+    result = shaper_core.process_image(image_bytes, cfg)
+    origin_default = result.get("image_center", {"x": 0, "y": 0})
+    gia_bytes = _convert_result_to_gia_bytes(
+        result_data=result,
+        cfg=cfg,
+        image_name=os.path.basename(input_path),
+        origin_x=origin_default.get("x", 0) if args.origin_x is None else float(args.origin_x),
+        origin_y=origin_default.get("y", 0) if args.origin_y is None else float(args.origin_y),
+    )
+
+    output_path = os.path.abspath(args.output or _default_cli_output_path(input_path))
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    with open(output_path, "wb") as f:
+        f.write(gia_bytes)
+
+    print(f"Generated GIA: {output_path}")
+    print(f"Mode: {result.get('mode')}")
+    print(f"Elements: {result.get('elements_count')}")
+    print(f"Elapsed: {result.get('elapsed_seconds')}s")
+    return 0
+
+
+def _create_arg_parser():
+    parser = argparse.ArgumentParser(description="Shaper web server / CLI")
+    parser.add_argument("--cli", action="store_true", help="run in CLI mode and export .gia directly")
+    parser.add_argument("--host", default="0.0.0.0", help="web mode host")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "5555")), help="web mode port")
+
+    parser.add_argument("--input", help="input image path for CLI mode")
+    parser.add_argument("--output", help="output .gia path for CLI mode")
+    parser.add_argument("--mode", choices=["fill", "outline"], default="fill", help="processing mode for CLI mode")
+    parser.add_argument("--shape", action="append", help="allowed shape, repeatable: circle / rect / triangle")
+    parser.add_argument("--origin-x", type=float, help="custom origin x in pixels for gia export")
+    parser.add_argument("--origin-y", type=float, help="custom origin y in pixels for gia export")
+
+    parser.add_argument("--num-primitives", type=int, default=400, help="fill mode primitive count")
+    parser.add_argument("--image-scale", type=float, default=1.0, help="fill mode image scale")
+    parser.add_argument("--output-alpha", type=float, default=100.0, help="fill mode alpha percent")
+    parser.add_argument("--detail-scale", type=float, default=1.0, help="fill mode detail scale")
+    parser.add_argument("--mask-threshold", type=int, default=127, help="fill mode alpha threshold")
+    parser.add_argument("--enable-png-mode", action="store_true", help="fill mode transparent png output")
+
+    parser.add_argument("--primitive-size", type=float, default=30.0, help="outline mode primitive size")
+    parser.add_argument("--spacing", type=float, default=0.9, help="outline mode spacing")
+    parser.add_argument("--precision", type=float, default=0.3, help="outline mode precision")
+    return parser
 
 
 PAGE_UPLOAD = r"""<!DOCTYPE html>
@@ -247,10 +431,10 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
         <ul class="tips">
           <li>⚠️ 开发中 (demo)，有很多 bug，已知目前对三角形和矩形支持不友好，优化中</li>
           <li>PNG 图片默认会将透明区域与白色背景混合。如需保留透明背景，请在参数中开启「PNG 模式」。</li>
-          <li>之前用于拼字的系统, 在上方切换成装饰物模式使用. 不确定现在还能不能用</li>
-          <li>使用教程:https://www.bilibili.com/video/BV1kKDyB9EvY</li>
-          <li>GIA 暂时只支持超限模式资产.</li>
-          <li>用户 QQ 群：1007538100</li>
+          <li>之前用于拼字的系统：<a href="https://qx-shaper.up.railway.app" target="_blank" rel="noopener noreferrer">qx-shaper.up.railway.app</a></li>
+          <li>使用教程：<a href="https://www.bilibili.com/video/BV1kKDyB9EvY" target="_blank" rel="noopener noreferrer">BV1kKDyB9EvY</a></li>
+          <li>GIA 暂时只支持超限模式资产。</li>
+          <li>用户 QQ 群：<a href="https://qm.qq.com/cgi-bin/qm/qr?k=1007538100" target="_blank" rel="noopener noreferrer">1007538100</a></li>
         </ul>
       </section>
     </aside>
@@ -703,71 +887,12 @@ def download_overlimit_gia(tid):
     except Exception:
         return "origin 参数无效", 400
 
-    origin_units_x = origin_x / pixel_per_unit
-    origin_units_y = -origin_y / pixel_per_unit
-
-    elements = []
-    for element in result_data.get("elements", []):
-        shape_type = element.get("type")
-        if shape_type == "circle":
-            shape_type = "ellipse"
-        elif shape_type == "rect":
-            shape_type = "rectangle"
-
-        rotation = element.get("rotation", {}) or {}
-        center = element.get("center", {}) or {}
-        exported = {
-            "type": shape_type,
-            "relative": {
-                "x": float(center.get("x", 0)) - origin_units_x,
-                "y": float(center.get("y", 0)) - origin_units_y,
-            },
-            "size": element.get("size", {}),
-            "rotation": rotation,
-            "color": element.get("color"),
-            "alpha": element.get("alpha"),
-            "packed_color": element.get("packed_color"),
-            "image_asset_ref": element.get("image_asset_ref", 100002),
-        }
-        if element.get("type_id") is not None:
-            exported["type_id"] = int(element["type_id"])
-        elif element.get("element_type_id") is not None:
-            exported["type_id"] = int(element["element_type_id"])
-        if element.get("element_type_id") is not None:
-            exported["element_type_id"] = int(element["element_type_id"])
-        if rotation.get("y") is not None:
-            exported["rot_y_add"] = float(rotation.get("y", 0))
-        elements.append(exported)
-
-    mask_cfg = None
-    mask_data = result_data.get("mask") or {}
-    if mask_data:
-        mask_center = mask_data.get("center") or {}
-        mask_size = mask_data.get("size") or {}
-        mask_cfg = {
-            "enabled": bool(mask_data.get("enabled", False)),
-            "shape_type": mask_data.get("shape_type", "rectangle"),
-            "center": {
-                "x": float(mask_center.get("x", 0)) - origin_units_x,
-                "y": float(mask_center.get("y", 0)) - origin_units_y,
-            },
-            "size": {
-                "width": float(mask_size.get("width", 0)),
-                "height": float(mask_size.get("height", 0)),
-            },
-        }
-
-    json_data = {
-        "elements": elements,
-        "mask": mask_cfg,
-        "group_name": _export_basename(task.get("image_name", "")),
-    }
-
-    mod = _load_json_to_gia()
-    gia_bytes = mod.convert_json_to_gia_bytes(
-        json_data=json_data,
-        base_gia_path=os.path.join(BASE_DIR, "gia", "image_template.gia"),
-        mode=mod.MODE_IMAGE,
+    gia_bytes = _convert_result_to_gia_bytes(
+        result_data=result_data,
+        cfg=cfg,
+        image_name=task.get("image_name", ""),
+        origin_x=origin_x,
+        origin_y=origin_y,
     )
 
     response = Response(gia_bytes, mimetype="application/octet-stream")
@@ -777,6 +902,13 @@ def download_overlimit_gia(tid):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5555"))
-    print(f"Shaper http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, threaded=True)
+    parser = _create_arg_parser()
+    args = parser.parse_args()
+
+    if args.cli:
+        if not args.input:
+            parser.error("--input is required when using --cli")
+        raise SystemExit(_run_cli(args))
+
+    print(f"Shaper http://localhost:{args.port}")
+    app.run(host=args.host, port=args.port, threaded=True)
