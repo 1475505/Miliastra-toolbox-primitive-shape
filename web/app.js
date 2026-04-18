@@ -602,6 +602,47 @@
     });
   }
 
+  if ($("btnExportJSON")) {
+    $("btnExportJSON").addEventListener("click", async () => {
+      const originUnits = { x: origin.x / pixelPerUnit, y: -origin.y / pixelPerUnit };
+      const payload = {
+        image_name: exportBaseName || null,
+        group_name: exportBaseName || null,
+        origin: originUnits,
+        image_size: data.image_size,
+        config: window.TASK_CFG || data.config,
+        mask: data.mask || null,
+        elements: renderOrderedElements().map((element, index) => ({
+          id: element.id != null ? element.id : index,
+          type: normalizeType(element.type),
+          shape: element.shape,
+          center: element.center,
+          relative: {
+            x: +(element.center.x - originUnits.x).toFixed(4),
+            y: +(element.center.y - originUnits.y).toFixed(4),
+          },
+          size: element.size,
+          rotation: element.rotation,
+          color: element.color,
+          alpha: element.alpha,
+          packed_color: element.packed_color,
+          image_asset_ref: element.image_asset_ref,
+          type_id: element.type_id,
+          element_type_id: element.element_type_id,
+          name: element.name,
+        })),
+      };
+      try {
+        await saveBlob(
+          new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+          exportFileName("json"),
+        );
+      } catch (error) {
+        alert(`导出失败: ${error && error.message ? error.message : error}`);
+      }
+    });
+  }
+
   if ($("btnExportPNG")) {
     $("btnExportPNG").addEventListener("click", () => {
       canvas.toBlob(async (blob) => {

@@ -492,6 +492,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     <aside class="panel panel-left">
       <section class="panel-section">
         <h3>导出</h3>
+        <button id="btnExportJSON" class="btn-sm">导出 JSON</button>
         <button id="btnExportSVG" class="btn-sm">导出 SVG</button>
         <button id="btnExportPNG" class="btn-sm">导出 PNG</button>
         <button id="btnExportCSS" class="btn-sm">导出 CSS</button>
