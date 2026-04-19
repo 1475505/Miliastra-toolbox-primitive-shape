@@ -509,10 +509,18 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     <aside class="panel panel-left">
       <section class="panel-section">
         <h3>导出</h3>
-        <button id="btnExportJSON" class="btn-sm">导出 JSON</button>
+        <div class="export-stack">
+          <div class="export-action">
+            <button id="btnExportJSON" class="btn-sm">导出 JSON</button>
+            <button id="btnCopyJSON" class="btn-copy" type="button">复制</button>
+          </div>
+          <div class="export-action">
+            <button id="btnExportCSS" class="btn-sm">导出 CSS</button>
+            <button id="btnCopyCSS" class="btn-copy" type="button">复制</button>
+          </div>
+        </div>
         <button id="btnExportSVG" class="btn-sm">导出 SVG</button>
         <button id="btnExportPNG" class="btn-sm">导出 PNG</button>
-        <button id="btnExportCSS" class="btn-sm">导出 CSS</button>
         <button id="btnExportGIAOverlimit" class="btn-sm">导出 GIA</button>
       </section>
 

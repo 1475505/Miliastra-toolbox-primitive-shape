@@ -454,6 +454,45 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transform: translateY(-1px);
 }
 
+.export-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.export-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.btn-copy {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: var(--primary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 56px;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-copy:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+  transform: translateY(-1px);
+}
+
+.btn-copy.is-success {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
 .btn-ghost {
   color: var(--text-muted);
   text-decoration: none;
