@@ -39,12 +39,29 @@ app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "web"), static_url_pa
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
 tasks = {}
+WEB_DIR = os.path.join(BASE_DIR, "web")
 
 DEFAULT_IMAGE_ASSET_REFS = {
     "rectangle": 100001,
     "ellipse": 100002,
     "triangle": 100003,
 }
+
+
+def _compute_web_asset_version():
+    asset_paths = [
+        os.path.join(WEB_DIR, "style.css"),
+        os.path.join(WEB_DIR, "upload.js"),
+        os.path.join(WEB_DIR, "app.js"),
+    ]
+    mtimes = []
+    for path in asset_paths:
+        if os.path.exists(path):
+            mtimes.append(int(os.path.getmtime(path)))
+    return str(max(mtimes) if mtimes else 1)
+
+
+WEB_ASSET_VERSION = _compute_web_asset_version()
 
 
 def cleanup():
@@ -256,7 +273,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>千星奇域拼图工具</title>
-  <link rel="stylesheet" href="/web/style.css">
+  <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
 </head>
 <body class="page-upload">
   <header class="topbar">
@@ -440,7 +457,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
     </aside>
   </div>
 
-  <script src="/web/upload.js?v=23"></script>
+  <script src="/web/upload.js?v={{ asset_version }}"></script>
 </body>
 </html>"""
 
@@ -450,7 +467,7 @@ PAGE_STATUS = r"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="refresh" content="5">
-  <link rel="stylesheet" href="/web/style.css">
+  <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
 </head>
 <body>
   <div class="loading-overlay">
@@ -468,7 +485,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>千星奇域拼图工具 - 结果</title>
-  <link rel="stylesheet" href="/web/style.css">
+  <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
   <script>
     var RESULT={{ result_json|safe }};
     var TASK_CFG={{ config_json|safe }};
@@ -610,19 +627,24 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     </aside>
   </div>
 
-  <script src="/web/app.js?v=21"></script>
+  <script src="/web/app.js?v={{ asset_version }}"></script>
 </body>
 </html>"""
 
 
 @app.route("/")
 def index():
-    return PAGE_UPLOAD
+    return render_template_string(PAGE_UPLOAD, asset_version=WEB_ASSET_VERSION)
+
+
+@app.route("/healthz")
+def healthz():
+    return {"ok": True, "service": "primitive-shape"}
 
 
 @app.route("/web/<path:filename>")
 def static_file(filename):
-    response = send_from_directory("web", filename)
+    response = send_from_directory(WEB_DIR, filename)
     if filename.endswith((".js", ".css")):
         response.headers["Cache-Control"] = "no-cache, no-store"
     return response
@@ -827,7 +849,7 @@ def status(tid):
     if task["status"] == "error":
         return f"<h2>出错</h2><p>{task.get('error')}</p><a href='/'>返回</a>"
     elapsed = int(time.time() - task["ts"])
-    return render_template_string(PAGE_STATUS, task_id=tid, elapsed=elapsed)
+    return render_template_string(PAGE_STATUS, task_id=tid, elapsed=elapsed, asset_version=WEB_ASSET_VERSION)
 
 
 @app.route("/result/<tid>")
@@ -844,6 +866,7 @@ def result(tid):
         config_json=json.dumps(cfg),
         task_id=tid,
         image_name_json=json.dumps(task.get("image_name", "")),
+        asset_version=WEB_ASSET_VERSION,
         count=result_data["elements_count"],
         elapsed=result_data["elapsed_seconds"],
         cfg_np=cfg.get("num_primitives", 400),

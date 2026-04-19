@@ -35,6 +35,27 @@ def _decode_data_payload(payload):
     return base64.b64decode(payload)
 
 
+def _dialog_file_types(filename):
+    ext = os.path.splitext(filename or "")[1].lower()
+    label_map = {
+        ".css": "CSS files (*.css)",
+        ".gia": "GIA files (*.gia)",
+        ".json": "JSON files (*.json)",
+        ".png": "PNG files (*.png)",
+        ".svg": "SVG files (*.svg)",
+    }
+    return (label_map.get(ext, "All files (*.*)"), "All files (*.*)")
+
+
+def _resolve_save_path(selected_path, filename):
+    selected_path = str(selected_path or "")
+    ext = os.path.splitext(filename or "")[1]
+    current_ext = os.path.splitext(selected_path)[1]
+    if ext and not current_ext:
+        return selected_path + ext
+    return selected_path
+
+
 class DesktopApi:
     def save_bytes(self, payload, filename):
         import webview
@@ -42,11 +63,13 @@ class DesktopApi:
         selected = webview.windows[0].create_file_dialog(
             webview.SAVE_DIALOG,
             save_filename=filename or "shaper_result",
+            file_types=_dialog_file_types(filename),
         )
         if not selected:
             return {"ok": False, "cancelled": True}
 
         path = selected if isinstance(selected, str) else selected[0]
+        path = _resolve_save_path(path, filename)
         with open(path, "wb") as f:
             f.write(_decode_data_payload(payload))
         return {"ok": True, "path": path}
