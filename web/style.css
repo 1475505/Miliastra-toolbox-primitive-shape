@@ -461,6 +461,28 @@ input[type="range"]::-webkit-slider-thumb:hover {
   margin-bottom: 10px;
 }
 
+.export-name-field {
+  margin-bottom: 12px;
+}
+
+.export-name-field label {
+  display: block;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.export-name-field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.export-name-field .hint {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
 .export-action {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

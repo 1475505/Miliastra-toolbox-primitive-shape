@@ -509,6 +509,11 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     <aside class="panel panel-left">
       <section class="panel-section">
         <h3>导出</h3>
+        <div class="export-name-field">
+          <label for="exportFileName">导出文件名</label>
+          <input type="text" id="exportFileName" autocomplete="off">
+          <p class="hint">默认与原文件名一致，同时用于 GIA 素材组名称。</p>
+        </div>
         <div class="export-stack">
           <div class="export-action">
             <button id="btnExportJSON" class="btn-sm">导出 JSON</button>
@@ -920,17 +925,20 @@ def download_overlimit_gia(tid):
     except Exception:
         return "origin 参数无效", 400
 
+    export_name = request.args.get("export_name", "")
+    resolved_image_name = export_name or task.get("image_name", "")
+
     gia_bytes = _convert_result_to_gia_bytes(
         result_data=result_data,
         cfg=cfg,
-        image_name=task.get("image_name", ""),
+        image_name=resolved_image_name,
         origin_x=origin_x,
         origin_y=origin_y,
     )
 
     response = Response(gia_bytes, mimetype="application/octet-stream")
-    export_name = f"{_export_basename(task.get('image_name', ''))}.gia"
-    response.headers["Content-Disposition"] = _attachment_filename(export_name)
+    download_name = f"{_export_basename(resolved_image_name)}.gia"
+    response.headers["Content-Disposition"] = _attachment_filename(download_name)
     return response
 
 
