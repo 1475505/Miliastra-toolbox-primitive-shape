@@ -280,6 +280,10 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
     <div class="topbar-left">
       <a href="/" style="text-decoration:none;"><h1>图片图元拟合</h1></a>
       <span class="topbar-subtitle">默认填充模式 · 默认仅圆形</span>
+      <nav class="tool-tabs" aria-label="工具页签">
+        <button type="button" id="imageToolTab" class="tool-tab active">图片拟合</button>
+        <button type="button" id="classicToolTab" class="tool-tab">导出经典模式 GIA</button>
+      </nav>
       <a href="#" id="outlineLink" class="topbar-link topbar-link-subtle">装饰物</a>
     </div>
     <div class="topbar-right">
@@ -289,7 +293,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
     </div>
   </header>
 
-  <div class="app-layout">
+  <div class="app-layout" id="imageToolPage">
     <aside class="panel panel-left">
       <form id="mainForm" action="/submit" method="POST" enctype="multipart/form-data">
         <input type="hidden" name="mode" id="modeInput" value="fill">
@@ -452,6 +456,52 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <li>使用教程：<a href="https://www.bilibili.com/video/BV1kKDyB9EvY" target="_blank" rel="noopener noreferrer">BV1kKDyB9EvY</a></li>
           <li>GIA 暂时只支持超限模式资产。</li>
           <li>用户 QQ 群：<a href="https://qm.qq.com/cgi-bin/qm/qr?k=1007538100" target="_blank" rel="noopener noreferrer">1007538100</a></li>
+        </ul>
+      </section>
+    </aside>
+  </div>
+
+  <div class="app-layout" id="classicToolPage" hidden>
+    <aside class="panel panel-left">
+      <form id="classicGiaForm" action="/convert_classic_gia" method="POST" enctype="multipart/form-data">
+        <section class="panel-section">
+          <h3>超限模式 GIA</h3>
+          <div id="classicDropZone" class="drop-zone">
+            <div class="drop-zone-content">
+              <span class="drop-icon">GIA</span>
+              <p>点击或拖拽上传超限模式 <strong>.gia</strong></p>
+            </div>
+            <input type="file" id="classicGiaInput" name="gia" accept=".gia,application/octet-stream" required hidden>
+            <span id="classicGiaName" class="file-name"></span>
+            <div id="classicGiaReady" class="upload-ready" hidden>已选择 GIA</div>
+          </div>
+          <p class="hint">转换会为 GIA 写入经典模式标记，原始文件不会被修改。</p>
+        </section>
+
+        <section class="panel-section section-submit">
+          <button type="submit" id="btnConvertClassicGia" class="btn-primary">导出经典模式 GIA</button>
+        </section>
+      </form>
+    </aside>
+
+    <main class="canvas-area tool-empty">
+      <div class="classic-tool-copy">
+        <h2>超限模式转经典模式</h2>
+        <p>上传现有超限模式 GIA，转换后会下载一个带 <code>_classic</code> 后缀的经典模式 GIA。</p>
+      </div>
+    </main>
+
+    <aside class="panel panel-right">
+      <section class="panel-section guide-card">
+        <h3>说明</h3>
+        <ol class="steps">
+          <li>上传超限模式 .gia</li>
+          <li>写入经典模式标记</li>
+          <li>下载新的经典模式 .gia</li>
+        </ol>
+        <ul class="tips">
+          <li>只处理 GIA 文件头部的模式字段，不会重新生成素材内容。</li>
+          <li>如果文件已经是经典模式，也会重新导出为经典模式文件。</li>
         </ul>
       </section>
     </aside>
@@ -909,6 +959,24 @@ def _load_json_to_gia():
     return _json_to_gia_mod
 
 
+_convert_to_classic_mod = None
+
+
+def _load_convert_to_classic():
+    global _convert_to_classic_mod
+    if _convert_to_classic_mod is not None:
+        return _convert_to_classic_mod
+
+    gia_dir = os.path.join(BASE_DIR, "gia")
+    if gia_dir not in sys.path:
+        sys.path.insert(0, gia_dir)
+
+    import convert_to_classic
+
+    _convert_to_classic_mod = convert_to_classic
+    return _convert_to_classic_mod
+
+
 @app.route("/download_overlimit_gia/<tid>")
 def download_overlimit_gia(tid):
     task = tasks.get(tid)
@@ -939,6 +1007,29 @@ def download_overlimit_gia(tid):
     response = Response(gia_bytes, mimetype="application/octet-stream")
     download_name = f"{_export_basename(resolved_image_name)}.gia"
     response.headers["Content-Disposition"] = _attachment_filename(download_name)
+    return response
+
+
+@app.route("/convert_classic_gia", methods=["POST"])
+def convert_classic_gia():
+    upload = request.files.get("gia")
+    if not upload:
+        return "缺少 GIA 文件", 400
+
+    blob = upload.read()
+    if not blob:
+        return "GIA 文件为空", 400
+
+    try:
+        mod = _load_convert_to_classic()
+        classic_bytes = mod.convert_gia_bytes_to_classic(blob)
+    except Exception as exc:
+        logger.exception("classic_gia_convert_error filename=%s", upload.filename or "")
+        return f"转换失败: {exc}", 400
+
+    source_name = _derive_upload_image_name(upload.filename) or "classic_mode"
+    response = Response(classic_bytes, mimetype="application/octet-stream")
+    response.headers["Content-Disposition"] = _attachment_filename(f"{source_name}_classic.gia")
     return response
 
 

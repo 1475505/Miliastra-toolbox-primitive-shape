@@ -52,6 +52,17 @@
   const hiddenMode = $("modeInput");
   const hiddenPrimitives = $("primJson");
 
+  const imageToolTab = $("imageToolTab");
+  const classicToolTab = $("classicToolTab");
+  const imageToolPage = $("imageToolPage");
+  const classicToolPage = $("classicToolPage");
+  const classicGiaForm = $("classicGiaForm");
+  const classicDropZone = $("classicDropZone");
+  const classicGiaInput = $("classicGiaInput");
+  const classicGiaName = $("classicGiaName");
+  const classicGiaReady = $("classicGiaReady");
+  const classicGiaButton = $("btnConvertClassicGia");
+
   const fillParams = $("fillParams");
   const outlineParams = $("outlineParams");
   const outlineLink = $("outlineLink");
@@ -67,7 +78,69 @@
   const shapeHint = $("shapeHint");
 
   let currentMode = "fill";
+  let activeTool = "image";
   let activePreviewUrl = null;
+
+  function downloadBlob(blob, name) {
+    const anchor = document.createElement("a");
+    anchor.href = URL.createObjectURL(blob);
+    anchor.download = name;
+    anchor.click();
+    URL.revokeObjectURL(anchor.href);
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error("failed to read blob"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function saveBlob(blob, name) {
+    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_bytes === "function") {
+      const payload = await blobToDataUrl(blob);
+      const result = await window.pywebview.api.save_bytes(payload, name);
+      if (!result || !result.ok) {
+        if (result && result.cancelled) return false;
+        throw new Error("desktop save failed");
+      }
+      return true;
+    }
+
+    downloadBlob(blob, name);
+    return true;
+  }
+
+  function filenameFromDisposition(disposition, fallback) {
+    const value = disposition || "";
+    const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match) {
+      try {
+        return decodeURIComponent(utf8Match[1]);
+      } catch (error) {
+        return utf8Match[1];
+      }
+    }
+    const asciiMatch = value.match(/filename="?([^";]+)"?/i);
+    return asciiMatch ? asciiMatch[1] : fallback;
+  }
+
+  function setTool(tool) {
+    activeTool = tool;
+    const isClassic = tool === "classic";
+    if (imageToolPage) imageToolPage.hidden = isClassic;
+    if (classicToolPage) classicToolPage.hidden = !isClassic;
+    if (imageToolTab) imageToolTab.classList.toggle("active", !isClassic);
+    if (classicToolTab) classicToolTab.classList.toggle("active", isClassic);
+    if (outlineLink) outlineLink.hidden = isClassic;
+    if (topbarSubtitle) {
+      topbarSubtitle.textContent = isClassic
+        ? "上传超限模式 GIA · 导出经典模式 GIA"
+        : (currentMode === "fill" ? "默认填充模式 · 默认仅圆形" : "装饰物拟合模式 · 使用元件参数生成轮廓");
+    }
+  }
 
   function getPresetList(shape) {
     return PRESETS[shape] || PRESETS.circle;
@@ -492,6 +565,27 @@
     if (submitButton) submitButton.classList.add("ready");
   }
 
+  function attachClassicGia(file) {
+    if (!file) return;
+    const name = file.name || "";
+    if (!name.toLowerCase().endsWith(".gia")) {
+      alert("请上传 .gia 文件");
+      return;
+    }
+
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    classicGiaInput.files = transfer.files;
+
+    if (classicGiaName) classicGiaName.textContent = name;
+    if (classicGiaReady) {
+      classicGiaReady.hidden = false;
+      classicGiaReady.textContent = `已选择 GIA · ${(file.size / 1024).toFixed(1)} KB`;
+    }
+    if (classicDropZone) classicDropZone.classList.add("ready");
+    if (classicGiaButton) classicGiaButton.classList.add("ready");
+  }
+
   setSliderValue("numPrims");
   setSliderValue("imageScale");
   setSliderValue("outputAlpha", (value) => value + "%");
@@ -520,6 +614,14 @@
       event.preventDefault();
       setMode(currentMode === "fill" ? "outline" : "fill");
     });
+  }
+
+  if (imageToolTab) {
+    imageToolTab.addEventListener("click", () => setTool("image"));
+  }
+
+  if (classicToolTab) {
+    classicToolTab.addEventListener("click", () => setTool("classic"));
   }
 
   if (addCirclePrimitiveBtn) {
@@ -566,6 +668,7 @@
     });
 
     document.addEventListener("paste", (event) => {
+      if (activeTool !== "image") return;
       const items = (event.clipboardData || window.clipboardData || {}).items || [];
       for (let i = 0; i < items.length; i += 1) {
         if (items[i].type && items[i].type.indexOf("image") !== -1) {
@@ -583,6 +686,74 @@
     });
   }
 
+  if (classicDropZone && classicGiaInput) {
+    classicDropZone.addEventListener("click", () => classicGiaInput.click());
+    classicGiaInput.addEventListener("change", () => {
+      if (classicGiaInput.files && classicGiaInput.files[0]) attachClassicGia(classicGiaInput.files[0]);
+    });
+
+    classicDropZone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      classicDropZone.classList.add("drag-over");
+    });
+
+    classicDropZone.addEventListener("dragleave", (event) => {
+      event.preventDefault();
+      classicDropZone.classList.remove("drag-over");
+    });
+
+    classicDropZone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      classicDropZone.classList.remove("drag-over");
+      if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+        attachClassicGia(event.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  if (classicGiaForm) {
+    classicGiaForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!classicGiaInput || !classicGiaInput.files || !classicGiaInput.files[0]) {
+        alert("请先选择超限模式 GIA 文件");
+        return;
+      }
+
+      const originalText = classicGiaButton ? classicGiaButton.textContent : "";
+      if (classicGiaButton) {
+        classicGiaButton.disabled = true;
+        classicGiaButton.textContent = "转换中...";
+      }
+
+      const formData = new FormData(classicGiaForm);
+      fetch("/convert_classic_gia", {
+        method: "POST",
+        body: formData,
+      })
+        .then((response) => {
+          if (!response.ok) {
+            return response.text().then((text) => {
+              throw new Error(text || `HTTP ${response.status}`);
+            });
+          }
+          const filename = filenameFromDisposition(
+            response.headers.get("Content-Disposition"),
+            (classicGiaInput.files[0].name || "classic_mode.gia").replace(/\.gia$/i, "_classic.gia"),
+          );
+          return response.blob().then((blob) => ({ blob, filename }));
+        })
+        .then(({ blob, filename }) => saveBlob(blob, filename))
+        .catch((error) => alert(`转换失败: ${error && error.message ? error.message : error}`))
+        .finally(() => {
+          if (classicGiaButton) {
+            classicGiaButton.disabled = false;
+            classicGiaButton.textContent = originalText || "导出经典模式 GIA";
+          }
+        });
+    });
+  }
+
   syncShapeLabels();
   setMode("fill");
+  setTool("image");
 })();

@@ -138,6 +138,41 @@ body {
   color: #059669;
 }
 
+.tool-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+}
+
+.tool-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.tool-tab:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.tool-tab.active {
+  color: var(--primary);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
 .topbar-status {
   font-size: 12px;
   font-weight: 600;
@@ -653,6 +688,38 @@ input[type="range"]::-webkit-slider-thumb:hover {
   position: relative;
   display: flex;
   flex-direction: column;
+}
+
+.tool-empty {
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.classic-tool-copy {
+  max-width: 520px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.classic-tool-copy h2 {
+  color: var(--text-main);
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+.classic-tool-copy p {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.classic-tool-copy code {
+  font-family: var(--font-mono);
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 2px 5px;
+  color: var(--primary);
 }
 
 .canvas-wrap {

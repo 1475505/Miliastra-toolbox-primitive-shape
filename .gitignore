@@ -10,6 +10,7 @@ win/dist/
 # GIA Workspace
 gia/*
 !gia/template.gia
+!gia/convert_to_classic.pyc
 !gia/json_to_gia.pyc
 !gia/json_to_gia.pyd
 
