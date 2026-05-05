@@ -31,6 +31,8 @@ a = Analysis(
         "fill_shaper",
         "final_shaper",
         "json_to_gia",
+        "convert_to_classic",
+        "convert_to_overlimit",
         "shapely",
         "shapely.geometry",
         "shapely.algorithms",

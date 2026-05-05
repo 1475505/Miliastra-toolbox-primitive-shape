@@ -28,8 +28,14 @@
 安装依赖：
 
 ```bash
-pip install flask
+pip install -r requirements.txt
 python server.py
+```
+
+CLI 直接导出 GIA（支持 `--gia-mode overlimit/classic`）：
+
+```bash
+python server.py --cli --input demo.png --gia-mode classic --output output.gia
 ```
 
 若提示primitive的不可用,可自行源码编译. 或准备 `primitive` 可执行文件并放到 `tools/` 目录下:
@@ -86,7 +92,12 @@ python server.py
 - `导出 SVG`
 - `导出 PNG`
 - `导出 CSS`
-- `导出 GIA`
+- `导出超限模式 GIA`
+- `导出经典模式 GIA`
+
+此外，上传页面还提供 **GIA 模式转换** 工具，支持：
+- 超限模式 GIA → 经典模式 GIA
+- 经典模式 GIA → 超限模式 GIA
 
 ### SVG
 
@@ -141,7 +152,7 @@ for (let i = 0; i < elementCount; i += 1) {
 
 ### GIA
 
-超限模式。
+支持导出**超限模式**和**经典模式**两种 GIA 格式。结果页可直接选择对应按钮下载；若需要批量转换已有 GIA 文件，可使用上传页面的「GIA模式转换」工具。
 
 ## TODO
 - 详见部署后网页

@@ -62,6 +62,15 @@
   const classicGiaName = $("classicGiaName");
   const classicGiaReady = $("classicGiaReady");
   const classicGiaButton = $("btnConvertClassicGia");
+  const giaDirectionInput = $("giaDirectionInput");
+  const dirOverToClassic = $("dirOverToClassic");
+  const dirClassicToOver = $("dirClassicToOver");
+  const classicUploadTitle = $("classicUploadTitle");
+  const classicDropText = $("classicDropText");
+  const classicHint = $("classicHint");
+  const classicToolTitle = $("classicToolTitle");
+  const classicToolDesc = $("classicToolDesc");
+  const classicSteps = $("classicSteps");
 
   const fillParams = $("fillParams");
   const outlineParams = $("outlineParams");
@@ -137,7 +146,7 @@
     if (outlineLink) outlineLink.hidden = isClassic;
     if (topbarSubtitle) {
       topbarSubtitle.textContent = isClassic
-        ? "上传超限模式 GIA · 导出经典模式 GIA"
+        ? "GIA模式转换"
         : (currentMode === "fill" ? "默认填充模式 · 默认仅圆形" : "装饰物拟合模式 · 使用元件参数生成轮廓");
     }
   }
@@ -565,6 +574,10 @@
     if (submitButton) submitButton.classList.add("ready");
   }
 
+  function getClassicDirection() {
+    return dirClassicToOver && dirClassicToOver.checked ? "classic_to_overlimit" : "overlimit_to_classic";
+  }
+
   function attachClassicGia(file) {
     if (!file) return;
     const name = file.name || "";
@@ -580,7 +593,9 @@
     if (classicGiaName) classicGiaName.textContent = name;
     if (classicGiaReady) {
       classicGiaReady.hidden = false;
-      classicGiaReady.textContent = `已选择 GIA · ${(file.size / 1024).toFixed(1)} KB`;
+      const direction = getClassicDirection();
+      const modeLabel = direction === "classic_to_overlimit" ? "经典模式" : "超限模式";
+      classicGiaReady.textContent = `已选择 ${modeLabel} GIA · ${(file.size / 1024).toFixed(1)} KB`;
     }
     if (classicDropZone) classicDropZone.classList.add("ready");
     if (classicGiaButton) classicGiaButton.classList.add("ready");
@@ -622,6 +637,43 @@
 
   if (classicToolTab) {
     classicToolTab.addEventListener("click", () => setTool("classic"));
+  }
+
+  function updateClassicToolUi() {
+    const isOverToClassic = !dirClassicToOver || !dirClassicToOver.checked;
+    if (giaDirectionInput) giaDirectionInput.value = isOverToClassic ? "overlimit_to_classic" : "classic_to_overlimit";
+    if (classicUploadTitle) classicUploadTitle.textContent = isOverToClassic ? "超限模式 GIA" : "经典模式 GIA";
+    if (classicDropText) {
+      classicDropText.innerHTML = isOverToClassic
+        ? "点击或拖拽上传超限模式 <strong>.gia</strong>"
+        : "点击或拖拽上传经典模式 <strong>.gia</strong>";
+    }
+    if (classicHint) {
+      classicHint.textContent = isOverToClassic
+        ? "转换会为 GIA 写入经典模式标记，原始文件不会被修改。"
+        : "转换会移除 GIA 中的经典模式标记，原始文件不会被修改。";
+    }
+    if (classicToolTitle) classicToolTitle.textContent = isOverToClassic ? "超限模式转经典模式" : "经典模式转超限模式";
+    if (classicToolDesc) {
+      classicToolDesc.innerHTML = isOverToClassic
+        ? "上传现有超限模式 GIA，转换后会下载一个带 <code>_classic</code> 后缀的经典模式 GIA。"
+        : "上传现有经典模式 GIA，转换后会下载一个带 <code>_overlimit</code> 后缀的超限模式 GIA。";
+    }
+    if (classicSteps) {
+      classicSteps.innerHTML = isOverToClassic
+        ? "<li>上传超限模式 .gia</li><li>写入经典模式标记</li><li>下载新的经典模式 .gia</li>"
+        : "<li>上传经典模式 .gia</li><li>移除经典模式标记</li><li>下载新的超限模式 .gia</li>";
+    }
+    if (classicGiaButton) {
+      classicGiaButton.textContent = isOverToClassic ? "导出经典模式 GIA" : "导出超限模式 GIA";
+    }
+  }
+
+  if (dirOverToClassic) {
+    dirOverToClassic.addEventListener("change", updateClassicToolUi);
+  }
+  if (dirClassicToOver) {
+    dirClassicToOver.addEventListener("change", updateClassicToolUi);
   }
 
   if (addCirclePrimitiveBtn) {
@@ -714,8 +766,10 @@
   if (classicGiaForm) {
     classicGiaForm.addEventListener("submit", (event) => {
       event.preventDefault();
+      const direction = getClassicDirection();
+      const sourceLabel = direction === "classic_to_overlimit" ? "经典模式" : "超限模式";
       if (!classicGiaInput || !classicGiaInput.files || !classicGiaInput.files[0]) {
-        alert("请先选择超限模式 GIA 文件");
+        alert(`请先选择${sourceLabel} GIA 文件`);
         return;
       }
 
@@ -726,7 +780,7 @@
       }
 
       const formData = new FormData(classicGiaForm);
-      fetch("/convert_classic_gia", {
+      fetch("/convert_gia_mode", {
         method: "POST",
         body: formData,
       })
@@ -736,9 +790,10 @@
               throw new Error(text || `HTTP ${response.status}`);
             });
           }
+          const defaultSuffix = direction === "classic_to_overlimit" ? "_overlimit.gia" : "_classic.gia";
           const filename = filenameFromDisposition(
             response.headers.get("Content-Disposition"),
-            (classicGiaInput.files[0].name || "classic_mode.gia").replace(/\.gia$/i, "_classic.gia"),
+            (classicGiaInput.files[0].name || "gia_mode.gia").replace(/\.gia$/i, defaultSuffix),
           );
           return response.blob().then((blob) => ({ blob, filename }));
         })
@@ -747,7 +802,7 @@
         .finally(() => {
           if (classicGiaButton) {
             classicGiaButton.disabled = false;
-            classicGiaButton.textContent = originalText || "导出经典模式 GIA";
+            classicGiaButton.textContent = originalText || (direction === "classic_to_overlimit" ? "导出超限模式 GIA" : "导出经典模式 GIA");
           }
         });
     });
@@ -756,4 +811,5 @@
   syncShapeLabels();
   setMode("fill");
   setTool("image");
+  updateClassicToolUi();
 })();

@@ -848,6 +848,28 @@
     });
   }
 
+  if ($("btnExportGIAClassic")) {
+    $("btnExportGIAClassic").addEventListener("click", () => {
+      const taskId = window.TASK_ID || "";
+      const qs = new URLSearchParams({
+        origin_x: origin.x,
+        origin_y: origin.y,
+        export_name: currentExportBaseName(),
+      }).toString();
+      fetch(`/download_classic_gia/${encodeURIComponent(taskId)}?${qs}`)
+        .then((response) => {
+          if (!response.ok) {
+            return response.text().then((text) => {
+              throw new Error(text || `HTTP ${response.status}`);
+            });
+          }
+          return response.blob();
+        })
+        .then((blob) => saveBlob(blob, `${currentExportBaseName()}_classic.gia`))
+        .catch((error) => alert(`导出失败: ${error && error.message ? error.message : error}`));
+    });
+  }
+
   window.addEventListener("resize", render);
   init();
 })();

@@ -227,6 +227,15 @@ def _run_cli(args):
         origin_y=origin_default.get("y", 0) if args.origin_y is None else float(args.origin_y),
     )
 
+    if args.gia_mode == "classic":
+        try:
+            mod = _load_convert_to_classic()
+            gia_bytes = mod.convert_gia_bytes_to_classic(gia_bytes)
+        except Exception as exc:
+            logger.exception("classic_gia_convert_error")
+            print(f"转换为经典模式失败: {exc}")
+            return 1
+
     output_path = os.path.abspath(args.output or _default_cli_output_path(input_path))
     output_dir = os.path.dirname(output_path)
     if output_dir:
@@ -264,6 +273,7 @@ def _create_arg_parser():
     parser.add_argument("--primitive-size", type=float, default=30.0, help="outline mode primitive size")
     parser.add_argument("--spacing", type=float, default=0.9, help="outline mode spacing")
     parser.add_argument("--precision", type=float, default=0.3, help="outline mode precision")
+    parser.add_argument("--gia-mode", choices=["overlimit", "classic"], default="overlimit", help="GIA output mode for CLI (default: overlimit)")
     return parser
 
 
@@ -282,7 +292,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
       <span class="topbar-subtitle">默认填充模式 · 默认仅圆形</span>
       <nav class="tool-tabs" aria-label="工具页签">
         <button type="button" id="imageToolTab" class="tool-tab active">图片拟合</button>
-        <button type="button" id="classicToolTab" class="tool-tab">导出经典模式 GIA</button>
+        <button type="button" id="classicToolTab" class="tool-tab">GIA模式转换</button>
       </nav>
       <a href="#" id="outlineLink" class="topbar-link topbar-link-subtle">装饰物</a>
     </div>
@@ -377,7 +387,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span id="imageScaleVal" class="val-tag">1.0</span>
               </div>
               <p class="param-desc">1.0 表示导出尺寸与原图分辨率一致。</p>
-              <input type="range" name="image_scale" id="imageScale" min="0.5" max="4" step="0.1" value="1.0">
+              <input type="range" name="image_scale" id="imageScale" min="0.2" max="4" step="0.1" value="1.0">
             </div>
 
             <div class="param-item">
@@ -463,19 +473,34 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
 
   <div class="app-layout" id="classicToolPage" hidden>
     <aside class="panel panel-left">
-      <form id="classicGiaForm" action="/convert_classic_gia" method="POST" enctype="multipart/form-data">
+      <form id="classicGiaForm" action="/convert_gia_mode" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="direction" id="giaDirectionInput" value="overlimit_to_classic">
         <section class="panel-section">
-          <h3>超限模式 GIA</h3>
+          <h3>转换方向</h3>
+          <div class="direction-select" style="display:flex;flex-direction:column;gap:8px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-main);cursor:pointer;">
+              <input type="radio" name="direction_radio" id="dirOverToClassic" value="overlimit_to_classic" checked>
+              <span>超限模式转经典模式</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-main);cursor:pointer;">
+              <input type="radio" name="direction_radio" id="dirClassicToOver" value="classic_to_overlimit">
+              <span>经典模式转超限模式</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h3 id="classicUploadTitle">超限模式 GIA</h3>
           <div id="classicDropZone" class="drop-zone">
             <div class="drop-zone-content">
               <span class="drop-icon">GIA</span>
-              <p>点击或拖拽上传超限模式 <strong>.gia</strong></p>
+              <p id="classicDropText">点击或拖拽上传超限模式 <strong>.gia</strong></p>
             </div>
             <input type="file" id="classicGiaInput" name="gia" accept=".gia,application/octet-stream" required hidden>
             <span id="classicGiaName" class="file-name"></span>
             <div id="classicGiaReady" class="upload-ready" hidden>已选择 GIA</div>
           </div>
-          <p class="hint">转换会为 GIA 写入经典模式标记，原始文件不会被修改。</p>
+          <p class="hint" id="classicHint">转换会为 GIA 写入经典模式标记，原始文件不会被修改。</p>
         </section>
 
         <section class="panel-section section-submit">
@@ -486,22 +511,22 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
 
     <main class="canvas-area tool-empty">
       <div class="classic-tool-copy">
-        <h2>超限模式转经典模式</h2>
-        <p>上传现有超限模式 GIA，转换后会下载一个带 <code>_classic</code> 后缀的经典模式 GIA。</p>
+        <h2 id="classicToolTitle">超限模式转经典模式</h2>
+        <p id="classicToolDesc">上传现有超限模式 GIA，转换后会下载一个带 <code>_classic</code> 后缀的经典模式 GIA。</p>
       </div>
     </main>
 
     <aside class="panel panel-right">
       <section class="panel-section guide-card">
         <h3>说明</h3>
-        <ol class="steps">
+        <ol class="steps" id="classicSteps">
           <li>上传超限模式 .gia</li>
           <li>写入经典模式标记</li>
           <li>下载新的经典模式 .gia</li>
         </ol>
         <ul class="tips">
           <li>只处理 GIA 文件头部的模式字段，不会重新生成素材内容。</li>
-          <li>如果文件已经是经典模式，也会重新导出为经典模式文件。</li>
+          <li>如果文件已经是目标模式，也会重新导出为目标模式文件。</li>
         </ul>
       </section>
     </aside>
@@ -576,7 +601,8 @@ PAGE_RESULT = r"""<!DOCTYPE html>
         </div>
         <button id="btnExportSVG" class="btn-sm">导出 SVG</button>
         <button id="btnExportPNG" class="btn-sm">导出 PNG</button>
-        <button id="btnExportGIAOverlimit" class="btn-sm">导出 GIA</button>
+        <button id="btnExportGIAOverlimit" class="btn-sm">导出超限模式 GIA</button>
+        <button id="btnExportGIAClassic" class="btn-sm">导出经典模式 GIA</button>
       </section>
 
       <section class="panel-section">
@@ -612,7 +638,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
           </div>
           <div class="config-row">
             <label>图片缩放</label>
-            <input type="number" name="image_scale" value="{{ cfg_scale }}" min="0.5" max="4" step="0.1" class="num-input">
+            <input type="number" name="image_scale" value="{{ cfg_scale }}" min="0.2" max="4" step="0.1" class="num-input">
           </div>
           <div class="config-row">
             <label>透明度</label>
@@ -977,6 +1003,24 @@ def _load_convert_to_classic():
     return _convert_to_classic_mod
 
 
+_convert_to_overlimit_mod = None
+
+
+def _load_convert_to_overlimit():
+    global _convert_to_overlimit_mod
+    if _convert_to_overlimit_mod is not None:
+        return _convert_to_overlimit_mod
+
+    gia_dir = os.path.join(BASE_DIR, "gia")
+    if gia_dir not in sys.path:
+        sys.path.insert(0, gia_dir)
+
+    import convert_to_overlimit
+
+    _convert_to_overlimit_mod = convert_to_overlimit
+    return _convert_to_overlimit_mod
+
+
 @app.route("/download_overlimit_gia/<tid>")
 def download_overlimit_gia(tid):
     task = tasks.get(tid)
@@ -1010,8 +1054,47 @@ def download_overlimit_gia(tid):
     return response
 
 
-@app.route("/convert_classic_gia", methods=["POST"])
-def convert_classic_gia():
+@app.route("/download_classic_gia/<tid>")
+def download_classic_gia(tid):
+    task = tasks.get(tid)
+    if not task or "result" not in task:
+        return "任务不存在", 404
+
+    result_data = task["result"]
+    cfg = task.get("config", {})
+    origin_default = result_data.get("image_center", {"x": 0, "y": 0})
+    try:
+        origin_x = float(request.args.get("origin_x", origin_default.get("x", 0)))
+        origin_y = float(request.args.get("origin_y", origin_default.get("y", 0)))
+    except Exception:
+        return "origin 参数无效", 400
+
+    export_name = request.args.get("export_name", "")
+    resolved_image_name = export_name or task.get("image_name", "")
+
+    gia_bytes = _convert_result_to_gia_bytes(
+        result_data=result_data,
+        cfg=cfg,
+        image_name=resolved_image_name,
+        origin_x=origin_x,
+        origin_y=origin_y,
+    )
+
+    try:
+        mod = _load_convert_to_classic()
+        gia_bytes = mod.convert_gia_bytes_to_classic(gia_bytes)
+    except Exception as exc:
+        logger.exception("classic_gia_convert_error task_id=%s", tid)
+        return f"转换为经典模式失败: {exc}", 400
+
+    response = Response(gia_bytes, mimetype="application/octet-stream")
+    download_name = f"{_export_basename(resolved_image_name)}_classic.gia"
+    response.headers["Content-Disposition"] = _attachment_filename(download_name)
+    return response
+
+
+@app.route("/convert_gia_mode", methods=["POST"])
+def convert_gia_mode():
     upload = request.files.get("gia")
     if not upload:
         return "缺少 GIA 文件", 400
@@ -1020,16 +1103,24 @@ def convert_classic_gia():
     if not blob:
         return "GIA 文件为空", 400
 
+    direction = request.form.get("direction", "overlimit_to_classic")
+    source_name = _derive_upload_image_name(upload.filename) or "gia_mode"
+
     try:
-        mod = _load_convert_to_classic()
-        classic_bytes = mod.convert_gia_bytes_to_classic(blob)
+        if direction == "classic_to_overlimit":
+            mod = _load_convert_to_overlimit()
+            result_bytes = mod.convert_gia_bytes_to_overlimit(blob)
+            suffix = "_overlimit"
+        else:
+            mod = _load_convert_to_classic()
+            result_bytes = mod.convert_gia_bytes_to_classic(blob)
+            suffix = "_classic"
     except Exception as exc:
-        logger.exception("classic_gia_convert_error filename=%s", upload.filename or "")
+        logger.exception("gia_mode_convert_error direction=%s filename=%s", direction, upload.filename or "")
         return f"转换失败: {exc}", 400
 
-    source_name = _derive_upload_image_name(upload.filename) or "classic_mode"
-    response = Response(classic_bytes, mimetype="application/octet-stream")
-    response.headers["Content-Disposition"] = _attachment_filename(f"{source_name}_classic.gia")
+    response = Response(result_bytes, mimetype="application/octet-stream")
+    response.headers["Content-Disposition"] = _attachment_filename(f"{source_name}{suffix}.gia")
     return response
 
 
