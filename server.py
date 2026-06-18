@@ -283,6 +283,9 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>千星奇域拼图工具</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
 </head>
 <body class="page-upload">
@@ -460,11 +463,11 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <li>生成预览并导出 GIA / JSON / PNG</li>
         </ol>
         <ul class="tips">
-          <li>⚠️ 开发中 (demo)，有很多 bug，已知目前对三角形和矩形支持不友好，优化中</li>
+          <li>禁止拟合政治、人物、事件、OOC等任何不适合的内容</li>
+          <li>目前对三角形和矩形支持不友好，多类型图形的效果较差</li>
           <li>PNG 图片默认会将透明区域与白色背景混合。如需保留透明背景，请在参数中开启「PNG 模式」。</li>
           <li>之前用于拼字的系统：<a href="https://qx-shaper.up.railway.app" target="_blank" rel="noopener noreferrer">qx-shaper.up.railway.app</a></li>
           <li>使用教程：<a href="https://www.bilibili.com/video/BV1kKDyB9EvY" target="_blank" rel="noopener noreferrer">BV1kKDyB9EvY</a></li>
-          <li>GIA 暂时只支持超限模式资产。</li>
           <li>用户 QQ 群：<a href="https://qm.qq.com/cgi-bin/qm/qr?k=1007538100" target="_blank" rel="noopener noreferrer">1007538100</a></li>
         </ul>
       </section>
@@ -542,13 +545,16 @@ PAGE_STATUS = r"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="refresh" content="5">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
 </head>
 <body>
   <div class="loading-overlay">
     <div class="spinner"></div>
-    <h2 style="margin-top:20px;font-weight:600;color:var(--text-main)">处理中 ({{ elapsed }}s)</h2>
-    <p style="margin-top:8px;font-size:13px;color:var(--text-dim)">任务 ID: {{ task_id }}</p>
+    <h2 style="margin-top:20px;font-weight:600;color:var(--md-on-surface)">处理中 ({{ elapsed }}s)</h2>
+    <p style="margin-top:8px;font-size:13px;color:var(--md-on-surface-variant);font-family:var(--font-mono)">任务 ID: {{ task_id }}</p>
   </div>
 </body>
 </html>"""
@@ -560,6 +566,9 @@ PAGE_RESULT = r"""<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>千星奇域拼图工具 - 结果</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
   <script>
     var RESULT={{ result_json|safe }};
@@ -576,7 +585,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     </div>
     <div class="topbar-right">
       <span id="statusText" class="topbar-status active">完成 · {{ count }} 图元 · {{ elapsed }}s</span>
-      <a href="/" class="btn-primary" style="text-decoration:none">新建</a>
+      <a href="/" class="btn-primary" style="text-decoration:none;width:auto;height:36px;padding:0 24px;font-size:14px;">新建</a>
     </div>
   </header>
 
