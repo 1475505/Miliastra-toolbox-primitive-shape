@@ -463,7 +463,8 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <li>生成预览并导出 GIA / JSON / PNG</li>
         </ol>
         <ul class="tips">
-          <li>禁止拟合政治、人物、事件、OOC等任何不适合的内容</li>
+          <li><strong>禁止拟合政治、人物、事件、OOC等任何不适合的内容</strong></li>
+          <li><strong>请合理使用本工具生成的gia资产，不要上传到资产中心等，若造成不良影响与工具作者无关，</strong></li>
           <li>目前对三角形和矩形支持不友好，多类型图形的效果较差</li>
           <li>PNG 图片默认会将透明区域与白色背景混合。如需保留透明背景，请在参数中开启「PNG 模式」。</li>
           <li>之前用于拼字的系统：<a href="https://qx-shaper.up.railway.app" target="_blank" rel="noopener noreferrer">qx-shaper.up.railway.app</a></li>
