@@ -219,10 +219,11 @@ def _run_cli(args):
     cfg = _build_cli_config(args, input_path)
     result = shaper_core.process_image(image_bytes, cfg)
     origin_default = result.get("image_center", {"x": 0, "y": 0})
+    image_name = args.name if args.name else os.path.basename(input_path)
     gia_bytes = _convert_result_to_gia_bytes(
         result_data=result,
         cfg=cfg,
-        image_name=os.path.basename(input_path),
+        image_name=image_name,
         origin_x=origin_default.get("x", 0) if args.origin_x is None else float(args.origin_x),
         origin_y=origin_default.get("y", 0) if args.origin_y is None else float(args.origin_y),
     )
@@ -258,6 +259,7 @@ def _create_arg_parser():
 
     parser.add_argument("--input", help="input image path for CLI mode")
     parser.add_argument("--output", help="output .gia path for CLI mode")
+    parser.add_argument("--name", help="character name used as GIA group_name (defaults to input filename stem)")
     parser.add_argument("--mode", choices=["fill", "outline"], default="fill", help="processing mode for CLI mode")
     parser.add_argument("--shape", action="append", help="allowed shape, repeatable: circle / rect / triangle")
     parser.add_argument("--origin-x", type=float, help="custom origin x in pixels for gia export")
