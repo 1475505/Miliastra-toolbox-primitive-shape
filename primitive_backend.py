@@ -435,6 +435,47 @@ def _render_preview(preview_image, full_width, full_height, alpha_map=None, tran
     return preview_rgba
 
 
+def _lower_subprocess_priority():
+    """在子进程内降低自身 CPU 优先级（Unix）。
+
+    primitive 拟合会把所有核心打满，导致 Flask 主进程无法及时响应 /status 轮询。
+    这里把 Go 子进程 nice 值提高 10，让 Flask 在 HTTP 请求到来时能瞬间抢占 CPU。
+    nice 只调调度优先级、不减 CPU 配额，因此不影响拟合总速度。
+    """
+    try:
+        os.nice(10)
+    except (OSError, AttributeError):
+        pass
+
+
+def _spawn_primitive_subprocess(cmd):
+    """启动 primitive 子进程并降低其 CPU 优先级。
+
+    Unix: 通过 preexec_fn 在 fork 后立即 os.nice(10)。
+    Windows: preexec_fn 不支持，启动后尝试用 psutil（可选依赖）降为 BELOW_NORMAL_PRIORITY_CLASS，
+             未安装 psutil 时静默跳过。
+    """
+    if os.name == "nt":
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        try:
+            import psutil  # 可选依赖
+
+            psutil.Process(proc.pid).nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        except Exception:
+            pass
+        stdout, stderr = proc.communicate()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(
+                proc.returncode, cmd, output=stdout, stderr=stderr
+            )
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    return subprocess.run(
+        cmd, check=True, capture_output=True, text=True, preexec_fn=_lower_subprocess_priority
+    )
+
+
 def fit_image_with_primitive(image, config=None):
     if config is None:
         config = {}
@@ -524,7 +565,8 @@ def fit_image_with_primitive(image, config=None):
             cmd.extend(["-m", str(mode), "-n", str(count)])
         primitive_started = time.perf_counter()
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            # 降优先级启动：拟合会打满 CPU，需让 Flask 轮询能抢占响应（见 _spawn_primitive_subprocess）
+            _spawn_primitive_subprocess(cmd)
         except subprocess.CalledProcessError as exc:
             logger.exception(
                 "primitive_fit failed after %.3fs returncode=%s stdout_tail=%r stderr_tail=%r",

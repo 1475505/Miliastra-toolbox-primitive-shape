@@ -447,6 +447,14 @@ body {
   flex-shrink: 0;
   margin-top: 2px;
 }
+.tips li.warning {
+  color: var(--md-on-error-container);
+}
+.tips li.warning::before {
+  content: '!';
+  background: var(--md-error);
+  color: var(--md-on-error);
+}
 
 /* ============================================================
    Config Rows
@@ -927,6 +935,36 @@ input[type="range"]::-webkit-slider-thumb:hover {
   animation: popIn 0.25s cubic-bezier(0.2, 0, 0, 1);
   box-shadow: none;
 }
+
+/* M3 Upload Warning */
+.upload-warning {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: popIn 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+.upload-warning::before {
+  content: '!';
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--md-error);
+  color: var(--md-on-error);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
 @keyframes popIn {
   from { transform: scale(0.95); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
@@ -1168,6 +1206,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
    Utility
    ============================================================ */
 [hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ============================================================
    Preset Bar / Radio Chips → M3 Segmented Buttons

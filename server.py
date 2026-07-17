@@ -316,16 +316,17 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
 
         <section class="panel-section">
           <h3>输入图片</h3>
-          <div id="dropZone" class="drop-zone">
+          <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="上传图片，点击、拖拽或 Ctrl+V 粘贴">
             <div class="drop-zone-content">
               <span class="drop-icon">图片</span>
               <p>点击、拖拽或 <strong>Ctrl+V</strong> 粘贴图片</p>
             </div>
-            <input type="file" id="fileInput" name="image" accept="image/*" required hidden>
+            <input type="file" id="fileInput" name="image" accept="image/png,image/jpeg,image/webp" required hidden>
             <img id="prev" class="preview-img" hidden>
             <span id="fname" class="file-name"></span>
             <span id="imgSize" class="img-size"></span>
-            <div id="uploadReady" class="upload-ready" hidden>已选择图片</div>
+            <div id="uploadReady" class="upload-ready" hidden aria-live="polite">已选择图片</div>
+            <div id="uploadWarning" class="upload-warning" hidden aria-live="polite">不建议上传分辨率较大的图片，会很慢</div>
           </div>
           <p class="hint">支持 PNG / JPG / WEBP。仅在开启 PNG 模式时才会直接使用透明通道；否则会先铺白底，再生成遮罩。</p>
         </section>
@@ -382,7 +383,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                 <span id="numPrimsVal" class="val-tag">400</span>
               </div>
               <p class="param-desc">越多越细，但耗时也更高。</p>
-              <input type="range" name="num_primitives" id="numPrims" min="40" max="1500" step="10" value="400">
+              <input type="range" name="num_primitives" id="numPrims" min="40" max="1200" step="10" value="400">
               <input type="number" name="num_primitives_manual" id="numPrimsManual" min="40" max="3000" value="400" class="num-input" style="margin-top:8px;width:100%;">
             </div>
 
@@ -465,6 +466,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <li>生成预览并导出 GIA / JSON / PNG</li>
         </ol>
         <ul class="tips">
+          <li class="warning"><strong>迁移通知：</strong>由于成本原因，2026 年 9 月 12 日起服务会迁移到新域名 <a href="https://qx-img.070077.xyz/" target="_blank" rel="noopener noreferrer">https://qx-img.070077.xyz/</a>，请加入用户 QQ 群或关注 B 站获取最新消息。</li>
           <li><strong>禁止拟合政治、人物、事件、OOC等任何不适合的内容</strong></li>
           <li><strong>请合理使用本工具生成的gia资产，不要上传到资产中心等，若造成不良影响与工具作者无关，</strong></li>
           <li>目前对三角形和矩形支持不友好，多类型图形的效果较差</li>
@@ -1145,5 +1147,7 @@ if __name__ == "__main__":
             parser.error("--input is required when using --cli")
         raise SystemExit(_run_cli(args))
 
+    # 拟合会打满 CPU；CPU 较差时建议 `nice -n 5 python server.py` 启动，
+    # 配合 primitive_backend 里的子进程降优先级，保证 /status 轮询能及时响应
     print(f"Shaper http://localhost:{args.port}")
     app.run(host=args.host, port=args.port, threaded=True)

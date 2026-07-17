@@ -47,6 +47,7 @@
   const fileName = $("fname");
   const imgSize = $("imgSize");
   const readyTag = $("uploadReady");
+  const uploadWarning = $("uploadWarning");
   const submitButton = $("btnSubmit");
   const form = $("mainForm");
   const hiddenMode = $("modeInput");
@@ -543,14 +544,22 @@
     }
   }
 
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
   async function attachFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
+    const isLarge = file.size > 3 * 1024 * 1024;
+    if (uploadWarning) uploadWarning.hidden = !isLarge;
     const transfer = new DataTransfer();
     transfer.items.add(file);
     fileInput.files = transfer.files;
 
     if (fileName) fileName.textContent = file.name;
-    if (imgSize) imgSize.textContent = "";
+    if (imgSize) imgSize.textContent = formatFileSize(file.size);
     if (preview) {
       if (activePreviewUrl) {
         URL.revokeObjectURL(activePreviewUrl);
@@ -610,14 +619,14 @@
   const numPrimsManual = $("numPrimsManual");
   const numPrimsVal = $("numPrimsVal");
   if (numPrimsSlider && numPrimsManual) {
-    numPrimsSlider.max = "1500";
+    numPrimsSlider.max = "1200";
     numPrimsSlider.addEventListener("input", () => {
       numPrimsManual.value = numPrimsSlider.value;
       if (numPrimsVal) numPrimsVal.textContent = numPrimsSlider.value;
     });
     numPrimsManual.addEventListener("input", () => {
       const value = Number.parseInt(numPrimsManual.value, 10);
-      if (!Number.isNaN(value) && value >= 40 && value <= 1500) {
+      if (!Number.isNaN(value) && value >= 40 && value <= 1200) {
         numPrimsSlider.value = String(value);
       }
       if (numPrimsVal) numPrimsVal.textContent = numPrimsSlider.value;
@@ -697,6 +706,12 @@
 
   if (dropZone && fileInput) {
     dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        fileInput.click();
+      }
+    });
     fileInput.addEventListener("change", () => {
       if (fileInput.files && fileInput.files[0]) attachFile(fileInput.files[0]);
     });
