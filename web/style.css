@@ -447,13 +447,90 @@ body {
   flex-shrink: 0;
   margin-top: 2px;
 }
-.tips li.warning {
+
+/* ============================================================
+   M3 Notice — Filled Tonal Card with Leading Icon
+   用于：迁移通知、政策警告、版本提示等需要用户关注的重点信息
+   配色：info=primary-container, warning=error-container
+   结构：leading icon + title + supporting text（M3 三段式）
+   ============================================================ */
+.m3-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-top: 16px;
+  border-radius: var(--md-shape-md);
+  font-size: 13px;
+  line-height: 1.55;
+  border: 1px solid transparent;
+}
+.m3-notice .notice-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: "Times New Roman", serif;
+  font-style: italic;
+  line-height: 1;
+}
+.m3-notice .notice-body {
+  flex: 1;
+  min-width: 0;
+}
+.m3-notice .notice-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  letter-spacing: 0.1px;
+}
+.m3-notice .notice-text {
+  margin: 0;
+  font-weight: 400;
+}
+.m3-notice a {
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.m3-notice a:hover {
+  text-decoration: none;
+}
+
+/* Info variant — 迁移通知、版本提示等中性信息（Indigo 容器） */
+.m3-notice.notice-info {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+.m3-notice.notice-info .notice-icon {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+}
+.m3-notice.notice-info a {
+  color: var(--md-primary);
+}
+
+/* Warning variant — 禁止事项、错误警告（Error 容器） */
+.m3-notice.notice-warning {
+  background: var(--md-error-container);
   color: var(--md-on-error-container);
 }
-.tips li.warning::before {
-  content: '!';
+.m3-notice.notice-warning .notice-icon {
   background: var(--md-error);
   color: var(--md-on-error);
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: 15px;
+  line-height: 22px;
+}
+.m3-notice.notice-warning a {
+  color: var(--md-error);
 }
 
 /* ============================================================

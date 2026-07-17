@@ -465,8 +465,14 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <li>确认图元和算法参数</li>
           <li>生成预览并导出 GIA / JSON / PNG</li>
         </ol>
+        <div class="m3-notice notice-info" role="status">
+          <span class="notice-icon" aria-hidden="true">i</span>
+          <div class="notice-body">
+            <strong class="notice-title">迁移通知</strong>
+            <p class="notice-text">由于成本原因，2026 年 9 月 12 日起服务会迁移到新域名 <a href="https://qx-img.070077.xyz/" target="_blank" rel="noopener noreferrer">https://qx-img.070077.xyz/</a>，请加入用户 QQ 群或关注 B 站获取最新消息。</p>
+          </div>
+        </div>
         <ul class="tips">
-          <li class="warning"><strong>迁移通知：</strong>由于成本原因，2026 年 9 月 12 日起服务会迁移到新域名 <a href="https://qx-img.070077.xyz/" target="_blank" rel="noopener noreferrer">https://qx-img.070077.xyz/</a>，请加入用户 QQ 群或关注 B 站获取最新消息。</li>
           <li><strong>禁止拟合政治、人物、事件、OOC等任何不适合的内容</strong></li>
           <li><strong>请合理使用本工具生成的gia资产，不要上传到资产中心等，若造成不良影响与工具作者无关，</strong></li>
           <li>目前对三角形和矩形支持不友好，多类型图形的效果较差</li>
