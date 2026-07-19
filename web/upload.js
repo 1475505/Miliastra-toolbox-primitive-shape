@@ -615,6 +615,18 @@
   setSliderValue("outputAlpha", (value) => value + "%");
   ["olPrimSize", "olSpacing", "olPrecision"].forEach((id) => setSliderValue(id));
 
+  function updateSliderFill(input) {
+    const min = Number(input.min) || 0;
+    const max = Number(input.max) || 100;
+    const value = Number(input.value) || 0;
+    const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    input.style.setProperty("--slider-fill", percent + "%");
+  }
+  document.querySelectorAll('input[type="range"]').forEach((input) => {
+    updateSliderFill(input);
+    input.addEventListener("input", () => updateSliderFill(input));
+  });
+
   const numPrimsSlider = $("numPrims");
   const numPrimsManual = $("numPrimsManual");
   const numPrimsVal = $("numPrimsVal");

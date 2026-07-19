@@ -596,7 +596,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     </div>
     <div class="topbar-right">
       <span id="statusText" class="topbar-status active">完成 · {{ count }} 图元 · {{ elapsed }}s</span>
-      <a href="/" class="btn-primary" style="text-decoration:none;width:auto;height:36px;padding:0 24px;font-size:14px;">新建</a>
+      <a href="/" class="btn-tonal">新建</a>
     </div>
   </header>
 
