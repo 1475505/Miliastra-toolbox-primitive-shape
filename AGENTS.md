@@ -5,8 +5,8 @@
 ## 目录结构
 
 ```
-├── server.py                 # Flask Web 服务器 + HTML 模板（单文件 ~1100 行）
-├── shaper_core.py            # 核心 API 入口（填充+轮廓两种模式）
+├── server.py                 # Flask Web 服务器 + HTML 模板（单文件 ~1300 行）
+├── shaper_core.py            # 核心 API 入口（填充+轮廓，含目标分辨率重定标）
 ├── fill_shaper.py            # 填充模式引擎 — 随机优化拟合（蒙版/软权重）
 ├── final_shaper.py           # 轮廓模式引擎 — 路径行走拟合（V6）
 ├── primitive_backend.py      # Go primitive 后端封装（保留兼容）
@@ -19,10 +19,20 @@
 ├── user_guide.md             # 用户使用指南
 ├── dev.md                    # 开发指南
 │
+├── wasm/
+│   ├── main.go               # Go→WASM 封装（本地模式拟合引擎，复刻后端流程）
+│   ├── go.mod                # 独立 module（replace 指向 third_party/primitive）
+│   └── test_node.mjs         # Node 冒烟测试
+│
 ├── web/
-│   ├── upload.js             # 上传页面逻辑 + 预设配置 (~800 行)
+│   ├── upload.js             # 上传页逻辑 + 预设 + 本地模式 (~1000 行)
+│   ├── local_fit.js          # 本地模式客户端（预处理、结果组装、/register_result）
 │   ├── app.js                # 结果页 Canvas 交互
 │   ├── style.css             # 全局样式
+│   ├── wasm/
+│   │   ├── primitive.wasm    # WASM 编译产物（GOOS=js GOARCH=wasm，~4.4MB）
+│   │   ├── wasm_exec.js      # Go 官方 JS 桥（随 Go 版本分发，勿手改）
+│   │   └── fit_worker.js     # Web Worker（加载 WASM、进度上报）
 │   └── README.md             # Web 服务说明
 │
 ├── gia/
@@ -65,8 +75,18 @@
 |------|------|
 | `GET /` | 上传页（三栏布局） |
 | `POST /submit` | 提交处理，302 → 状态页 |
+| `POST /register_result` | 寄存本地（WASM）拟合结果，返回 task_id 复用结果页 |
 | `GET /status/<tid>` | 轮询处理状态 |
 | `GET /result/<tid>` | 结果页（Canvas 渲染 + 导出） |
+
+## 本地模式（WebAssembly）
+
+- 「本地模式」开关在上传页顶部；仅支持填充模式，单图处理后跳转结果页
+- 拟合引擎 = `third_party/primitive` 编译的 WASM（与云端同一算法），在 Web Worker 中运行
+- 多核：Go js/wasm 单线程（GOMAXPROCS=1），多核 = 多 WASM 实例。**单图并行**采用与云端 `primitive -j N` 相同的 Step 内候选并行（`wasm/main.go` 分步 API：init/state/search/apply/finish；`web/local_fit.js` 的 `runDistributed` 编排，每 Step 各实例搜索候选、主实例应用最优），池大小 min(4, hardwareConcurrency)，实测 4 核 ~3.3x 提速
+- 重新构建：`cd wasm && GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o ../web/wasm/primitive.wasm .`（需 Go ≥ 1.25，`wasm_exec.js` 必须与编译版本一致）
+- 本地结果经 `web/local_fit.js` 组装成与后端一致的结构后 POST `/register_result`，结果页与导出链路完全复用
+- 「输出尺寸」为二选一：按比例缩放（image_scale）或指定分辨率（target_width/height，此时缩放按 1.0）；指定分辨率模式上传图片后自动填充当前图片分辨率
 
 ## 开发注意事项
 

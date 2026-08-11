@@ -130,6 +130,102 @@ def _fill_allowed_types(config):
     return allowed or [fill_shaper.ShapeType.CIRCLE]
 
 
+def _resolve_target_resolution(config, width, height):
+    """解析目标输出分辨率；未启用或非法时返回 None。"""
+    try:
+        target_width = int(config.get("target_width", 0) or 0)
+        target_height = int(config.get("target_height", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    target_width = max(0, min(4096, target_width))
+    target_height = max(0, min(4096, target_height))
+    if target_width <= 0 or target_height <= 0:
+        return None
+    if target_width == width and target_height == height:
+        return None
+    return target_width, target_height
+
+
+def _scale_element_size_keys(size, ratio_x, ratio_y):
+    scaled = {}
+    for key, value in size.items():
+        factor = ratio_x if key in ("width", "rx") else ratio_y
+        try:
+            scaled[key] = round(float(value) * factor, 4)
+        except (TypeError, ValueError):
+            scaled[key] = value
+    return scaled
+
+
+def _rescale_fill_output(result, target_width, target_height):
+    """把 fill 结果从原始分辨率重定标到目标分辨率。
+
+    所有以像素推导的字段（elements 坐标/尺寸、mask、预览图）都按
+    (rx, ry) 缩放；unit_scale 语义不变（缩放发生在像素域）。
+    """
+    width = result["image_size"]["width"]
+    height = result["image_size"]["height"]
+    ratio_x = target_width / float(width)
+    ratio_y = target_height / float(height)
+
+    origin_x = float(result["image_center"]["x"]) * ratio_x
+    origin_y = float(result["image_center"]["y"]) * ratio_y
+    unit_scale = float(result["config"].get("unit_scale", 1.0))
+    origin_units_x = origin_x * unit_scale
+    origin_units_y = -origin_y * unit_scale
+
+    for element in result["elements"]:
+        center = element.get("center", {})
+        new_cx = round(float(center.get("x", 0.0)) * ratio_x, 4)
+        new_cy = round(float(center.get("y", 0.0)) * ratio_y, 4)
+        element["center"] = {"x": new_cx, "y": new_cy}
+        relative = {"x": round(new_cx - origin_units_x, 4), "y": round(new_cy - origin_units_y, 4)}
+        element["relative"] = dict(relative)
+        if "relative_position" in element:
+            element["relative_position"] = dict(relative)
+        if "size" in element:
+            element["size"] = _scale_element_size_keys(element["size"], ratio_x, ratio_y)
+
+    mask = result.get("mask")
+    if mask:
+        mask_center = mask.get("center", {})
+        mask["center"] = {
+            "x": round(float(mask_center.get("x", 0.0)) * ratio_x, 4),
+            "y": round(float(mask_center.get("y", 0.0)) * ratio_y, 4),
+        }
+        mask_size = mask.get("size", {})
+        mask["size"] = {
+            "width": round(float(mask_size.get("width", 0.0)) * ratio_x, 4),
+            "height": round(float(mask_size.get("height", 0.0)) * ratio_y, 4),
+        }
+        bbox = mask.get("bbox_px")
+        if bbox:
+            mask["bbox_px"] = {
+                "x": int(round(bbox.get("x", 0) * ratio_x)),
+                "y": int(round(bbox.get("y", 0) * ratio_y)),
+                "width": max(1, int(round(bbox.get("width", 1) * ratio_x))),
+                "height": max(1, int(round(bbox.get("height", 1) * ratio_y))),
+            }
+
+    def _resize_b64(key):
+        encoded = result.get(key)
+        if not encoded:
+            return
+        raw = base64.b64decode(encoded)
+        image = _decode_image(raw)
+        resized = cv2.resize(image, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
+        result[key] = _encode_png_base64(resized)
+
+    _resize_b64("image_base64")
+    _resize_b64("preview_base64")
+    _resize_b64("mask_base64")
+
+    result["image_center"] = {"x": origin_x, "y": origin_y}
+    result["image_size"] = {"width": target_width, "height": target_height}
+    result["config"]["target_width"] = target_width
+    result["config"]["target_height"] = target_height
+
+
 def process_image(image_bytes, config=None):
     if config is None:
         config = {}
@@ -257,7 +353,7 @@ def process_image_fill(image_bytes, config=None):
         preview.shape[0],
     )
 
-    return {
+    result = {
         "mode": "fill",
         "image_center": {"x": image_center[0], "y": image_center[1]},
         "image_size": {"width": width, "height": height},
@@ -302,6 +398,16 @@ def process_image_fill(image_bytes, config=None):
         "mask_base64": _encode_png_base64((coverage_for_bbox.astype(np.uint8) * 255)) if mask_enabled else None,
         "elapsed_seconds": round(elapsed, 2),
     }
+
+    target_resolution = _resolve_target_resolution(config, width, height)
+    if target_resolution is not None:
+        _rescale_fill_output(result, target_resolution[0], target_resolution[1])
+        logger.info(
+            "fill_process rescaled to target resolution %dx%d",
+            target_resolution[0],
+            target_resolution[1],
+        )
+    return result
 
 
 def process_image_outline(image_bytes, config=None):

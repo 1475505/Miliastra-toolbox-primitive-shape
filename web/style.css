@@ -1827,3 +1827,255 @@ input[type="range"]:focus-visible {
   padding-top: 14px;
 }
 
+
+/* ============================================================
+   Local Mode (WebAssembly) & Batch Tasks
+   ============================================================ */
+
+/* --- Engine switch card --- */
+.engine-card {
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.engine-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.engine-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.engine-card-title strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--md-on-surface);
+}
+.engine-badge {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 3px 10px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  white-space: nowrap;
+}
+.engine-badge[data-mode="local"] {
+  background: var(--md-tertiary-container);
+  color: var(--md-on-tertiary-container);
+}
+.engine-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--md-on-surface-variant);
+}
+.engine-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-outline);
+  flex-shrink: 0;
+  animation: enginePulse 1.2s ease-in-out infinite;
+}
+.engine-status[data-state="ready"] .engine-status-dot {
+  background: var(--md-tertiary);
+  animation: none;
+}
+.engine-status[data-state="error"] .engine-status-dot {
+  background: var(--md-error);
+  animation: none;
+}
+@keyframes enginePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* --- M3 Switch --- */
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.switch-track {
+  width: 44px;
+  height: 26px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-highest);
+  border: 2px solid var(--md-outline);
+  position: relative;
+  transition: background 0.2s, border-color 0.2s;
+  display: block;
+}
+.switch-thumb {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--md-outline);
+  transition: left 0.2s, width 0.2s, height 0.2s, background 0.2s;
+}
+.switch input:checked + .switch-track {
+  background: var(--md-primary);
+  border-color: var(--md-primary);
+}
+.switch input:checked + .switch-track .switch-thumb {
+  left: calc(100% - 19px);
+  width: 18px;
+  height: 18px;
+  background: var(--md-on-primary);
+}
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
+}
+
+/* --- check row --- */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--md-on-surface);
+  cursor: pointer;
+  user-select: none;
+}
+.check-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--md-primary);
+  cursor: pointer;
+}
+
+/* --- target resolution --- */
+.target-res-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.target-res-row .num-input {
+  flex: 1;
+  min-width: 0;
+}
+.target-res-x {
+  color: var(--md-on-surface-variant);
+  font-weight: 600;
+}
+.lock-btn {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.lock-btn.active {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border-color: transparent;
+}
+
+/* --- local progress --- */
+.local-progress {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.local-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.local-progress-head span:first-child {
+  font-size: 12px;
+  color: var(--md-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-progress-bar {
+  height: 8px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-highest);
+  overflow: hidden;
+}
+.local-progress-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--md-primary), var(--md-tertiary));
+  transition: width 0.25s ease;
+}
+.local-progress .btn-chip {
+  align-self: flex-end;
+}
+
+/* --- segmented toggle (输出尺寸二选一) --- */
+.seg-toggle {
+  display: flex;
+  background: var(--md-surface-container-high);
+  border-radius: var(--md-shape-full);
+  padding: 3px;
+  gap: 2px;
+  margin-top: 10px;
+}
+.seg-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 10px;
+  border-radius: var(--md-shape-full);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+  white-space: nowrap;
+}
+.seg-btn:hover {
+  color: var(--md-on-surface);
+}
+.seg-btn.active {
+  background: var(--md-surface-container-lowest);
+  color: var(--md-primary);
+  font-weight: 600;
+  box-shadow: var(--md-elevation-1);
+}
+.seg-btn:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
+}
+.output-size-panel {
+  margin-top: 10px;
+}
+.scale-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.scale-row input[type="range"] {
+  flex: 1;
+}

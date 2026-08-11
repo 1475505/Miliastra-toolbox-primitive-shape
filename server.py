@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "web"), static_url_path="/web")
-app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
 tasks = {}
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -314,6 +314,27 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
         <input type="hidden" name="mode" id="modeInput" value="fill">
         <input type="hidden" name="primitives_json" id="primJson">
 
+        <section class="panel-section" id="localModeSection">
+          <h3>运行方式</h3>
+          <div class="engine-card" id="engineCard">
+            <div class="engine-card-head">
+              <label class="switch" for="localModeToggle">
+                <input type="checkbox" id="localModeToggle">
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+              <div class="engine-card-title">
+                <strong>本地模式</strong>
+                <span class="engine-badge" id="engineBadge">云端引擎</span>
+              </div>
+            </div>
+            <p class="hint" id="engineHint">云端模式：由服务器完成拟合计算。</p>
+            <div class="engine-status" id="engineStatus" hidden>
+              <span class="engine-status-dot"></span>
+              <span id="engineStatusText">本地引擎加载中…</span>
+            </div>
+          </div>
+        </section>
+
         <section class="panel-section">
           <h3>输入图片</h3>
           <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="上传图片，点击、拖拽或 Ctrl+V 粘贴">
@@ -389,11 +410,33 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
 
             <div class="param-item">
               <div class="param-head">
-                <span class="param-title">图片缩放</span>
-                <span id="imageScaleVal" class="val-tag">1.0</span>
+                <span class="param-title">输出尺寸</span>
+                <span id="outputSizeVal" class="val-tag">缩放 ×1.0</span>
               </div>
-              <p class="param-desc">1.0 表示导出尺寸与原图分辨率一致。</p>
-              <input type="range" name="image_scale" id="imageScale" min="0.2" max="4" step="0.1" value="1.0">
+              <p class="param-desc">按比例缩放与指定分辨率二选一。</p>
+              <div class="seg-toggle" id="outputSizeToggle">
+                <button type="button" class="seg-btn active" id="segScale" data-mode="scale">按比例缩放</button>
+                <button type="button" class="seg-btn" id="segTarget" data-mode="target">指定分辨率</button>
+              </div>
+
+              <div id="scalePanel" class="output-size-panel">
+                <div class="scale-row">
+                  <input type="range" name="image_scale" id="imageScale" min="0.2" max="4" step="0.1" value="1.0">
+                  <span id="imageScaleVal" class="val-tag">1.0</span>
+                </div>
+                <p class="hint">1.0 表示导出尺寸与原图分辨率一致。</p>
+              </div>
+
+              <div id="targetPanel" class="output-size-panel" hidden>
+                <input type="checkbox" name="enable_target_resolution" id="enableTargetRes" hidden>
+                <div class="target-res-row" id="targetResRow">
+                  <input type="number" name="target_width" id="targetWidth" min="16" max="4096" step="1" placeholder="宽" class="num-input">
+                  <span class="target-res-x">×</span>
+                  <input type="number" name="target_height" id="targetHeight" min="16" max="4096" step="1" placeholder="高" class="num-input">
+                  <button type="button" id="targetResLock" class="btn-chip lock-btn active" title="锁定宽高比">等比</button>
+                </div>
+                <p class="hint" id="targetResHint">按原图比例联动；取消「等比」可自由拉伸。指定分辨率时缩放按 1.0 处理。</p>
+              </div>
             </div>
 
             <div class="param-item">
@@ -453,6 +496,13 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
 
         <section class="panel-section section-submit">
           <button type="submit" id="btnSubmit" class="btn-primary">开始处理</button>
+          <div id="localProgress" class="local-progress" hidden>
+            <div class="local-progress-head">
+              <span id="localProgressText">本地引擎准备中…</span>
+              <span id="localProgressPct" class="val-tag">0%</span>
+            </div>
+            <div class="local-progress-bar"><span id="localProgressFill"></span></div>
+          </div>
         </section>
       </form>
     </aside>
@@ -546,6 +596,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
     </aside>
   </div>
 
+  <script src="/web/local_fit.js?v={{ asset_version }}"></script>
   <script src="/web/upload.js?v={{ asset_version }}"></script>
 </body>
 </html>"""
@@ -756,6 +807,9 @@ def static_file(filename):
     response = send_from_directory(WEB_DIR, filename)
     if filename.endswith((".js", ".css")):
         response.headers["Cache-Control"] = "no-cache, no-store"
+    elif filename.endswith(".wasm"):
+        response.headers["Content-Type"] = "application/wasm"
+        response.headers["Cache-Control"] = "public, max-age=86400"
     return response
 
 
@@ -801,6 +855,13 @@ def submit():
         cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
         cfg["output_alpha"] = float(request.form.get("output_alpha", 100)) / 100.0
         cfg["enable_png_mode"] = request.form.get("enable_png_mode") == "on"
+        if request.form.get("enable_target_resolution") == "on":
+            try:
+                cfg["target_width"] = max(16, min(4096, int(request.form.get("target_width", 0))))
+                cfg["target_height"] = max(16, min(4096, int(request.form.get("target_height", 0))))
+            except (TypeError, ValueError):
+                cfg.pop("target_width", None)
+                cfg.pop("target_height", None)
         allowed_shapes = []
         if request.form.get("shape_circle") == "on":
             allowed_shapes.append("circle")
@@ -892,6 +953,9 @@ def retry(tid):
         cfg["output_alpha"] = float(request.form.get("output_alpha", int(old_cfg.get("output_alpha", 1.0) * 100))) / 100.0
         cfg["enable_png_mode"] = old_cfg.get("enable_png_mode", False)
         cfg["allowed_shapes"] = old_cfg.get("allowed_shapes", ["circle"])
+        if old_cfg.get("target_width") and old_cfg.get("target_height"):
+            cfg["target_width"] = old_cfg["target_width"]
+            cfg["target_height"] = old_cfg["target_height"]
     else:
         cfg["primitive_size"] = float(request.form.get("primitive_size", old_cfg.get("primitive_size", 30)))
         cfg["spacing"] = float(request.form.get("spacing", old_cfg.get("spacing", 0.9)))
@@ -946,6 +1010,47 @@ def retry(tid):
 
     threading.Thread(target=worker, daemon=True).start()
     return redirect(f"/status/{new_id}")
+
+
+@app.route("/register_result", methods=["POST"])
+def register_result():
+    """寄存本地（WebAssembly）拟合完成的结果，返回 task_id 复用结果页与导出链路。"""
+    cleanup()
+    payload = request.get_json(silent=True) or {}
+    result_data = payload.get("result")
+    if not isinstance(result_data, dict) or not result_data.get("elements"):
+        return {"ok": False, "error": "缺少有效结果"}, 400
+
+    cfg = payload.get("config") or {}
+    image_name = _derive_upload_image_name(payload.get("image_name", ""))
+    image_bytes = b""
+    image_b64 = payload.get("image_base64") or ""
+    if image_b64:
+        try:
+            import base64 as _b64
+
+            image_bytes = _b64.b64decode(image_b64)
+        except Exception:
+            image_bytes = b""
+
+    task_id = uuid.uuid4().hex[:8]
+    tasks[task_id] = {
+        "status": "done",
+        "ts": time.time(),
+        "image_bytes": image_bytes,
+        "image_name": image_name,
+        "config": cfg,
+        "result": result_data,
+        "local": True,
+    }
+    logger.info(
+        "task_register_local id=%s elements=%s image_name=%s bytes=%d",
+        task_id,
+        result_data.get("elements_count"),
+        image_name,
+        len(image_bytes),
+    )
+    return {"ok": True, "task_id": task_id}
 
 
 @app.route("/status/<tid>")

@@ -91,6 +91,33 @@
   let activeTool = "image";
   let activePreviewUrl = null;
 
+  // ---- 本地模式（WebAssembly） ----
+  const localModeToggle = $("localModeToggle");
+  const engineBadge = $("engineBadge");
+  const engineHint = $("engineHint");
+  const engineStatus = $("engineStatus");
+  const engineStatusText = $("engineStatusText");
+  const localProgress = $("localProgress");
+  const localProgressText = $("localProgressText");
+  const localProgressPct = $("localProgressPct");
+  const localProgressFill = $("localProgressFill");
+  const enableTargetRes = $("enableTargetRes");
+  const targetResRow = $("targetResRow");
+  const targetWidthInput = $("targetWidth");
+  const targetHeightInput = $("targetHeight");
+  const targetResLock = $("targetResLock");
+  const targetResHint = $("targetResHint");
+
+  let localMode = false;
+  let processing = false;
+  let aspectLock = true;
+  let aspectRatio = null; // width / height of the first image
+  let lastImageDims = null; // dimensions of the most recently attached image
+
+  function isLocalMode() {
+    return Boolean(localModeToggle && localModeToggle.checked);
+  }
+
   function downloadBlob(blob, name) {
     const anchor = document.createElement("a");
     anchor.href = URL.createObjectURL(blob);
@@ -578,6 +605,12 @@
 
     const dimensions = await readImageDimensions(file);
     renderImageDimensions(dimensions);
+    if (dimensions && dimensions.width > 0 && dimensions.height > 0) {
+      aspectRatio = dimensions.width / dimensions.height;
+      lastImageDims = dimensions;
+      fillTargetResFromImage(dimensions.width, dimensions.height);
+      syncTargetResFromAspect();
+    }
 
     if (dropZone) dropZone.classList.add("ready");
     if (submitButton) submitButton.classList.add("ready");
@@ -585,6 +618,246 @@
 
   function getClassicDirection() {
     return dirClassicToOver && dirClassicToOver.checked ? "classic_to_overlimit" : "overlimit_to_classic";
+  }
+
+  /* ================= 输出尺寸（缩放 / 指定分辨率 二选一） ================= */
+
+  const segScale = $("segScale");
+  const segTarget = $("segTarget");
+  const scalePanel = $("scalePanel");
+  const targetPanel = $("targetPanel");
+  const outputSizeVal = $("outputSizeVal");
+  const imageScaleInput = $("imageScale");
+  let outputSizeMode = "scale"; // "scale" | "target"
+
+  function syncTargetResFromAspect() {
+    if (outputSizeMode !== "target" || !aspectLock || !aspectRatio) return;
+    const w = Number.parseInt(targetWidthInput.value, 10);
+    const h = Number.parseInt(targetHeightInput.value, 10);
+    if (!Number.isFinite(w) && !Number.isFinite(h)) {
+      targetWidthInput.value = String(Math.round(aspectRatio * 512));
+      targetHeightInput.value = "512";
+    } else if (Number.isFinite(w) && document.activeElement === targetWidthInput) {
+      targetHeightInput.value = String(Math.max(16, Math.round(w / aspectRatio)));
+    } else if (Number.isFinite(h) && document.activeElement === targetHeightInput) {
+      targetWidthInput.value = String(Math.max(16, Math.round(h * aspectRatio)));
+    }
+  }
+
+  function updateOutputSizeUi() {
+    const isTarget = outputSizeMode === "target";
+    if (segScale) segScale.classList.toggle("active", !isTarget);
+    if (segTarget) segTarget.classList.toggle("active", isTarget);
+    if (scalePanel) scalePanel.hidden = isTarget;
+    if (targetPanel) targetPanel.hidden = !isTarget;
+
+    // disabled 的字段不会随表单提交：切到「指定分辨率」时缩放按服务端默认 1.0，
+    // 切回「缩放」时目标分辨率字段整体不提交。
+    if (imageScaleInput) imageScaleInput.disabled = isTarget;
+    if (enableTargetRes) {
+      enableTargetRes.checked = isTarget;
+      enableTargetRes.disabled = !isTarget;
+    }
+    [targetWidthInput, targetHeightInput].forEach((input) => {
+      if (input) input.disabled = !isTarget;
+    });
+
+    if (outputSizeVal) {
+      if (!isTarget) {
+        outputSizeVal.textContent = `缩放 ×${imageScaleInput ? imageScaleInput.value : "1.0"}`;
+      } else {
+        const w = Number.parseInt(targetWidthInput.value, 10);
+        const h = Number.parseInt(targetHeightInput.value, 10);
+        outputSizeVal.textContent = Number.isFinite(w) && Number.isFinite(h) ? `${w} × ${h}` : "未设置";
+      }
+    }
+  }
+
+  function setOutputSizeMode(mode) {
+    outputSizeMode = mode === "target" ? "target" : "scale";
+    if (outputSizeMode === "target") {
+      // 已有图片时直接填充其分辨率，否则按比例给出默认值
+      if (lastImageDims) fillTargetResFromImage(lastImageDims.width, lastImageDims.height);
+      else if (aspectLock) syncTargetResFromAspect();
+    }
+    updateOutputSizeUi();
+  }
+
+  // 「指定分辨率」模式下，上传图片后直接填充当前图片的分辨率
+  function fillTargetResFromImage(width, height) {
+    if (outputSizeMode !== "target") return;
+    if (!targetWidthInput || !targetHeightInput) return;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+    targetWidthInput.value = String(width);
+    targetHeightInput.value = String(height);
+    updateOutputSizeUi();
+  }
+
+  function getTargetResolution() {
+    if (outputSizeMode !== "target") return null;
+    const w = Number.parseInt(targetWidthInput.value, 10);
+    const h = Number.parseInt(targetHeightInput.value, 10);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+    return {
+      target_width: Math.max(16, Math.min(4096, w)),
+      target_height: Math.max(16, Math.min(4096, h)),
+    };
+  }
+
+  if (segScale) segScale.addEventListener("click", () => setOutputSizeMode("scale"));
+  if (segTarget) segTarget.addEventListener("click", () => setOutputSizeMode("target"));
+  [targetWidthInput, targetHeightInput].forEach((input) => {
+    if (!input) return;
+    input.addEventListener("input", () => {
+      syncTargetResFromAspect();
+      updateOutputSizeUi();
+    });
+  });
+  if (imageScaleInput) {
+    imageScaleInput.addEventListener("input", updateOutputSizeUi);
+  }
+  if (targetResLock) {
+    targetResLock.addEventListener("click", () => {
+      aspectLock = !aspectLock;
+      targetResLock.classList.toggle("active", aspectLock);
+      targetResLock.textContent = aspectLock ? "等比" : "自由";
+      if (aspectLock) syncTargetResFromAspect();
+      updateOutputSizeUi();
+    });
+  }
+
+  /* ================= 本地模式 ================= */
+
+  function updateEngineUi() {
+    const on = isLocalMode();
+    localMode = on;
+    try { localStorage.setItem("shaper.localMode", on ? "1" : "0"); } catch (error) { /* ignore */ }
+
+    if (engineBadge) {
+      engineBadge.textContent = on ? "本地引擎 · WASM" : "云端引擎";
+      engineBadge.dataset.mode = on ? "local" : "cloud";
+    }
+    if (engineHint) {
+      engineHint.textContent = on
+        ? "本地模式：速度更快，计算在浏览器内完成。"
+        : "云端模式：由服务器完成拟合计算。";
+    }
+    if (engineStatus) engineStatus.hidden = !on;
+
+    if (fileInput) {
+      if (on) fileInput.removeAttribute("required");
+      else fileInput.setAttribute("required", "");
+    }
+
+    // 本地模式仅支持填充模式：切回 fill 并隐藏装饰物切换
+    if (outlineLink) outlineLink.hidden = on;
+    if (on && currentMode === "outline") setMode("fill");
+
+    if (!on && localProgress) localProgress.hidden = true;
+
+    if (on && window.LocalFit) {
+      if (engineStatusText) engineStatusText.textContent = "本地引擎加载中…（首次约几秒）";
+      window.LocalFit.ensureReady().then((ready) => {
+        if (!engineStatusText) return;
+        if (!isLocalMode()) return;
+        const workers = window.LocalFit.readyWorkerCount ? window.LocalFit.readyWorkerCount() : 1;
+        engineStatusText.textContent = ready
+          ? (workers > 1 ? `本地引擎就绪（${workers} 核并行）` : "本地引擎就绪")
+          : "本地引擎加载失败，可切换回云端模式";
+        if (engineStatus) engineStatus.dataset.state = ready ? "ready" : "error";
+      });
+      if (engineStatus) engineStatus.dataset.state = "loading";
+    }
+  }
+
+  /* ================= 本地处理参数 ================= */
+
+  function readAllowedShapes() {
+    const shapes = [];
+    if ($("shapeCircle") && $("shapeCircle").checked) shapes.push("circle");
+    if ($("shapeRect") && $("shapeRect").checked) shapes.push("rect");
+    if ($("shapeTriangle") && $("shapeTriangle").checked) shapes.push("triangle");
+    return shapes.length > 0 ? shapes : ["circle"];
+  }
+
+  function buildUnifiedConfig() {
+    const manualPrims = Number.parseInt(($("numPrimsManual") || {}).value, 10);
+    const sliderPrims = Number.parseInt(($("numPrims") || {}).value, 10);
+    const numPrimitives = Number.isFinite(manualPrims)
+      ? Math.max(40, Math.min(3000, manualPrims))
+      : Math.max(40, Math.min(3000, Number.isFinite(sliderPrims) ? sliderPrims : 400));
+    const config = {
+      mode: "fill",
+      num_primitives: numPrimitives,
+      mask_threshold: 127,
+      detail_scale: 1.0,
+      image_scale: Number.parseFloat(($("imageScale") || {}).value) || 1.0,
+      output_alpha: (Number.parseFloat(($("outputAlpha") || {}).value) || 100) / 100,
+      enable_png_mode: Boolean($("enablePngMode") && $("enablePngMode").checked),
+      allowed_shapes: readAllowedShapes(),
+      primitives: JSON.parse((hiddenPrimitives && hiddenPrimitives.value) || "[]"),
+      origin: { type: "center" },
+    };
+    const target = getTargetResolution();
+    if (target) {
+      // 「指定分辨率」与「图片缩放」互斥：分辨率模式按缩放 1.0 处理
+      config.image_scale = 1.0;
+      Object.assign(config, target);
+    }
+    return config;
+  }
+
+  function setLocalProgress(text, pct) {
+    if (!localProgress) return;
+    localProgress.hidden = false;
+    if (localProgressText) localProgressText.textContent = text;
+    const clamped = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    if (localProgressPct) localProgressPct.textContent = clamped + "%";
+    if (localProgressFill) localProgressFill.style.width = clamped + "%";
+  }
+
+  /* 本地模式 · 单图：WASM 拟合 → 寄存 → 跳结果页 */
+  async function processSingleLocal() {
+    if (processing) return;
+    if (!window.LocalFit) {
+      alert("本地引擎未加载");
+      return;
+    }
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) {
+      alert("请先选择图片");
+      return;
+    }
+    processing = true;
+    if (submitButton) submitButton.disabled = true;
+    updatePrimitivesJson();
+
+    const config = buildUnifiedConfig();
+    const ext = (file.name.match(/\.[a-z0-9]+$/i) || [""])[0].toLowerCase();
+    config.source_filename = file.name;
+    config.source_ext = ext;
+
+    try {
+      setLocalProgress("本地引擎准备中…", 0);
+      const { result, sourceImageBase64 } = await window.LocalFit.fitOne(file, config, (done, total) => {
+        setLocalProgress(`正在拟合（${done}/${total} 图元）`, (done / total) * 100);
+      });
+      setLocalProgress("正在寄存结果…", 100);
+      const taskId = await window.LocalFit.registerResult(
+        result, config, file.name.replace(/\.[a-z0-9]+$/i, ""), sourceImageBase64
+      );
+      window.location.href = `/result/${taskId}`;
+    } catch (error) {
+      alert(`本地拟合失败：${(error && error.message) || error}`);
+      setLocalProgress("拟合失败", 0);
+    } finally {
+      processing = false;
+      if (submitButton) submitButton.disabled = false;
+    }
+  }
+
+  if (localModeToggle) {
+    localModeToggle.addEventListener("change", updateEngineUi);
   }
 
   function attachClassicGia(file) {
@@ -749,17 +1022,25 @@
     document.addEventListener("paste", (event) => {
       if (activeTool !== "image") return;
       const items = (event.clipboardData || window.clipboardData || {}).items || [];
+      const imageFiles = [];
       for (let i = 0; i < items.length; i += 1) {
         if (items[i].type && items[i].type.indexOf("image") !== -1) {
-          attachFile(items[i].getAsFile());
-          break;
+          const file = items[i].getAsFile();
+          if (file) imageFiles.push(file);
         }
       }
+      if (imageFiles.length === 0) return;
+      attachFile(imageFiles[0]);
     });
   }
 
   if (form) {
-    form.addEventListener("submit", () => {
+    form.addEventListener("submit", (event) => {
+      if (isLocalMode()) {
+        event.preventDefault();
+        processSingleLocal();
+        return;
+      }
       if (hiddenMode && !hiddenMode.value) hiddenMode.value = "fill";
       updatePrimitivesJson();
     });
@@ -839,4 +1120,15 @@
   setMode("fill");
   setTool("image");
   updateClassicToolUi();
+
+  // 恢复本地模式偏好并预热引擎
+  let savedLocalMode = false;
+  try {
+    savedLocalMode = localStorage.getItem("shaper.localMode") === "1";
+  } catch (error) { /* ignore */ }
+  if (localModeToggle) {
+    localModeToggle.checked = savedLocalMode;
+    updateEngineUi();
+  }
+  updateOutputSizeUi();
 })();
