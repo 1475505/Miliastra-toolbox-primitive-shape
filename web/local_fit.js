@@ -14,6 +14,9 @@
   const PNG_ALPHA_FIT_GAMMA = 1.6;
   const BACKGROUND_BLEED_PX = 4.0;
   const DEFAULT_IMAGE_ASSET_REFS = { circle: 100002, rect: 100001, triangle: 100003 };
+  // 寄存图（原图/预览/蒙版）base64 最大边长：结果页均按 image_size 拉伸绘制，
+  // 降采样不影响展示；可避免大图请求体超过服务端上限（寄存 413）并显著缩短寄存耗时
+  const MAX_REGISTER_IMAGE_PX = 2048;
 
   // Worker 池：每个 Worker 加载独立的 WASM 实例。Go js/wasm 运行时为单线程
   // （GOMAXPROCS=1），多核只能多实例并行。单图拟合采用与云端 `primitive -j N`
@@ -142,9 +145,29 @@
     return canvas;
   }
 
-  function canvasToPngBase64(canvas) {
-    const url = canvas.toDataURL("image/png");
-    return url.slice(url.indexOf(",") + 1);
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result || "");
+        resolve(url.slice(url.indexOf(",") + 1));
+      };
+      reader.onerror = () => reject(reader.error || new Error("PNG 编码结果读取失败"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  /* 将 source 绘制到 targetW×targetH（超出上限时等比降采样）并异步编码为 PNG base64 */
+  async function canvasToPngBase64(source, targetW, targetH, background) {
+    const maxSide = Math.max(targetW, targetH);
+    const ratio = maxSide > MAX_REGISTER_IMAGE_PX ? MAX_REGISTER_IMAGE_PX / maxSide : 1;
+    const width = Math.max(1, Math.round(targetW * ratio));
+    const height = Math.max(1, Math.round(targetH * ratio));
+    const canvas = drawToCanvas(source, width, height, background);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => (result ? resolve(result) : reject(new Error("PNG 编码失败"))), "image/png");
+    });
+    return blobToBase64(blob);
   }
 
   function base64ToImage(base64) {
@@ -523,26 +546,15 @@
       rescaleResult(result, outW, outH);
     }
 
-    // 输出尺寸的 base64 图
-    const browserCanvas = document.createElement("canvas");
-    browserCanvas.width = outW;
-    browserCanvas.height = outH;
-    const browserCtx = browserCanvas.getContext("2d");
-    if (!transparentOutput) {
-      browserCtx.fillStyle = "#ffffff";
-      browserCtx.fillRect(0, 0, outW, outH);
-    }
-    browserCtx.drawImage(image, 0, 0, outW, outH);
-    result.image_base64 = canvasToPngBase64(browserCanvas);
-
-    const previewImage = await base64ToImage(fit.preview_png);
-    const previewCanvas = drawToCanvas(previewImage, outW, outH, transparentOutput ? null : "#ffffff");
-    result.preview_base64 = canvasToPngBase64(previewCanvas);
+    // 寄存请求体去重（减少上传量、避免超过服务端上限）：
+    //   image_base64  与顶层 sourceImageBase64 同图 → 不在此编码，由服务端注入源图
+    //   preview_base64 结果页可用 canvas 自渲染回退 → 置空
+    result.image_base64 = null;
+    result.preview_base64 = null;
 
     if (result.mask_base64) {
       const maskImage = await base64ToImage(result.mask_base64);
-      const maskCanvas = drawToCanvas(maskImage, outW, outH, "#000000");
-      result.mask_base64 = canvasToPngBase64(maskCanvas);
+      result.mask_base64 = await canvasToPngBase64(maskImage, outW, outH, "#000000");
     }
 
     result.elapsed_seconds = Math.round(((performance.now() - startedAt) / 1000) * 100) / 100;

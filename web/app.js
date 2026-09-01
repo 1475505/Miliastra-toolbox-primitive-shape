@@ -82,7 +82,7 @@
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => resolve(null);
-      img.src = "data:image/png;base64," + base64;
+      img.src = "data:;base64," + base64;
     });
   }
 
@@ -568,7 +568,7 @@
 
     const compare = $("previewCompare");
     if (compare) compare.hidden = mode !== "fill";
-    if ($("originalThumb") && data.image_base64) $("originalThumb").src = "data:image/png;base64," + data.image_base64;
+    if ($("originalThumb") && data.image_base64) $("originalThumb").src = "data:;base64," + data.image_base64;
   }
 
   function applyVariantUi() {

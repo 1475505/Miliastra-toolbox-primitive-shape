@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 
 
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "web"), static_url_path="/web")
-app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
+# 本地模式寄存会携带 源图 + 原图/预览/蒙版 base64，大图请求体可达上百 MB
+app.config["MAX_CONTENT_LENGTH"] = 256 * 1024 * 1024
 
 tasks = {}
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -63,11 +64,22 @@ def _compute_web_asset_version():
 
 WEB_ASSET_VERSION = _compute_web_asset_version()
 
+# 默认拟合运行方式（上传页「本地模式」开关初始状态）：local=本地（WASM），cloud=云端
+DEFAULT_FIT_MODE = os.environ.get("DEFAULT_FIT_MODE", "local").strip().lower()
+if DEFAULT_FIT_MODE not in ("local", "cloud"):
+    DEFAULT_FIT_MODE = "local"
+
 
 def cleanup():
     now = time.time()
     for key in [key for key, value in tasks.items() if now - value.get("ts", 0) > 1800]:
         del tasks[key]
+
+
+@app.errorhandler(413)
+def request_entity_too_large(_error):
+    # 返回 JSON 而非 HTML 错误页，前端 registerResult 能给出可读信息
+    return {"ok": False, "error": "请求体过大（超过 256MB 上限），请减小图片尺寸后重试"}, 413
 
 
 def _derive_upload_image_name(filename):
@@ -290,7 +302,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
 </head>
-<body class="page-upload">
+<body class="page-upload" data-default-fit-mode="{{ default_fit_mode }}">
   <header class="topbar">
     <div class="topbar-left">
       <a href="/" style="text-decoration:none;"><h1>图片图元拟合</h1></a>
@@ -794,7 +806,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
 
 @app.route("/")
 def index():
-    return render_template_string(PAGE_UPLOAD, asset_version=WEB_ASSET_VERSION)
+    return render_template_string(PAGE_UPLOAD, asset_version=WEB_ASSET_VERSION, default_fit_mode=DEFAULT_FIT_MODE)
 
 
 @app.route("/healthz")
@@ -1034,6 +1046,10 @@ def register_result():
             image_bytes = b""
 
     task_id = uuid.uuid4().hex[:8]
+    # 本地模式为减小请求体不再重复上传 canvas 重编码的原图，
+    # 此处直接用源图 base64 作为结果页底图（结果页按内容嗅探解码，兼容 JPG/PNG）
+    if image_b64 and not result_data.get("image_base64"):
+        result_data["image_base64"] = image_b64
     tasks[task_id] = {
         "status": "done",
         "ts": time.time(),

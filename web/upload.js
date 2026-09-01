@@ -1121,10 +1121,16 @@
   setTool("image");
   updateClassicToolUi();
 
-  // 恢复本地模式偏好并预热引擎
+  // 恢复本地模式偏好并预热引擎：优先用户上次选择，无记录时用服务端默认（DEFAULT_FIT_MODE）
   let savedLocalMode = false;
   try {
-    savedLocalMode = localStorage.getItem("shaper.localMode") === "1";
+    const saved = localStorage.getItem("shaper.localMode");
+    if (saved === "1" || saved === "0") {
+      savedLocalMode = saved === "1";
+    } else {
+      const serverDefault = (document.body.dataset.defaultFitMode || "").toLowerCase();
+      savedLocalMode = serverDefault !== "cloud"; // 缺省本地模式
+    }
   } catch (error) { /* ignore */ }
   if (localModeToggle) {
     localModeToggle.checked = savedLocalMode;
