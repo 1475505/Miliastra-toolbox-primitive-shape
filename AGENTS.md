@@ -58,35 +58,43 @@
 ## 技术栈
 
 - **后端**: Python 3.13+, Flask, OpenCV, NumPy, Shapely, SciPy
+
 - **前端**: 原生 JS + CSS（无框架）, Canvas 2D
+
 - **部署**: Flask 内嵌 HTML 模板（MPA 架构，无前后端分离）
+
 - **桌面**: pywebview (Windows WebView2)
 
 ## 核心模式
 
-| 模式 | 引擎 | 拟合方式 | 图元类型 |
-|------|------|---------|---------|
-| 轮廓 (Outline) | `final_shaper.py` | 路径行走（沿轮廓排列） | 椭圆、矩形 |
-| 填充 (Fill) | `fill_shaper.py` | 随机优化 + 爬山（区域内分布） | 圆形、椭圆、矩形、三角形 |
+| 模式           | 引擎                | 拟合方式             | 图元类型         |
+| ------------ | ----------------- | ---------------- | ------------ |
+| 轮廓 (Outline) | `final_shaper.py` | 路径行走（沿轮廓排列）      | 椭圆、矩形        |
+| 填充 (Fill)    | `fill_shaper.py`  | 随机优化 + 爬山（区域内分布） | 圆形、椭圆、矩形、三角形 |
 
 ## 路由架构
 
-| 路由 | 说明 |
-|------|------|
-| `GET /` | 上传页（三栏布局） |
-| `POST /submit` | 提交处理，302 → 状态页 |
-| `POST /register_result` | 寄存本地（WASM）拟合结果，返回 task_id 复用结果页 |
-| `GET /status/<tid>` | 轮询处理状态 |
-| `GET /result/<tid>` | 结果页（Canvas 渲染 + 导出） |
+| 路由                      | 说明                               |
+| ----------------------- | -------------------------------- |
+| `GET /`                 | 上传页（三栏布局）                        |
+| `POST /submit`          | 提交处理，302 → 状态页                   |
+| `POST /register_result` | 寄存本地（WASM）拟合结果，返回 task\_id 复用结果页 |
+| `GET /status/<tid>`     | 轮询处理状态                           |
+| `GET /result/<tid>`     | 结果页（Canvas 渲染 + 导出）              |
 
 ## 本地模式（WebAssembly）
 
 - 「本地模式」开关在上传页顶部；仅支持填充模式，单图处理后跳转结果页
+
 - 拟合引擎 = `third_party/primitive` 编译的 WASM（与云端同一算法），在 Web Worker 中运行
-- 多核：Go js/wasm 单线程（GOMAXPROCS=1），多核 = 多 WASM 实例。**单图并行**采用与云端 `primitive -j N` 相同的 Step 内候选并行（`wasm/main.go` 分步 API：init/state/search/apply/finish；`web/local_fit.js` 的 `runDistributed` 编排，每 Step 各实例搜索候选、主实例应用最优），池大小 min(4, hardwareConcurrency)，实测 4 核 ~3.3x 提速
+
+- 多核：Go js/wasm 单线程（GOMAXPROCS=1），多核 = 多 WASM 实例。**单图并行**采用与云端 `primitive -j N` 相同的 Step 内候选并行（`wasm/main.go` 分步 API：init/state/search/apply/finish；`web/local_fit.js` 的 `runDistributed` 编排，每 Step 各实例搜索候选、主实例应用最优），池大小 = hardwareConcurrency（逻辑核数，实测 M2 8 核 \~3.8x 提速）
+
 - 重新构建：`cd wasm && GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o ../web/wasm/primitive.wasm .`（需 Go ≥ 1.25，`wasm_exec.js` 必须与编译版本一致）
+
 - 本地结果经 `web/local_fit.js` 组装成与后端一致的结构后 POST `/register_result`，结果页与导出链路完全复用
-- 「输出尺寸」为二选一：按比例缩放（image_scale）或指定分辨率（target_width/height，此时缩放按 1.0）；指定分辨率模式上传图片后自动填充当前图片分辨率
+
+- 「输出尺寸」为二选一：按比例缩放（image\_scale）或指定分辨率（target\_width/height，此时缩放按 1.0）；指定分辨率模式上传图片后自动填充当前图片分辨率
 
 ## 开发注意事项
 
@@ -95,3 +103,4 @@
 3. 预设配置（图元 ID、尺寸等）定义在 `web/upload.js` 的 `PRESETS` 常量中
 4. 服务默认端口 5555
 5. Go primitive 可执行文件需放在 `tools/` 下，缺失时处理会失败
+
