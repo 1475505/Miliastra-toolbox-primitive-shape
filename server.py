@@ -672,20 +672,29 @@ PAGE_RESULT = r"""<!DOCTYPE html>
           <input type="text" id="exportFileName" autocomplete="off">
           <p class="hint">默认与原文件名一致，同时用于 GIA 素材组名称。</p>
         </div>
-        <div class="export-stack">
-          <div class="export-action">
-            <button id="btnExportJSON" class="btn-sm">导出 JSON</button>
-            <button id="btnCopyJSON" class="btn-copy" type="button">复制</button>
-          </div>
-          <div class="export-action">
-            <button id="btnExportCSS" class="btn-sm">导出 CSS</button>
-            <button id="btnCopyCSS" class="btn-copy" type="button">复制</button>
+        <div class="export-group">
+          <p class="export-group-title">素材组资产</p>
+          <div class="export-stack">
+            <button id="btnExportGIAOverlimit" class="btn-sm">导出超限模式 GIA</button>
+            <button id="btnExportGIAClassic" class="btn-sm">导出经典模式 GIA</button>
           </div>
         </div>
-        <button id="btnExportSVG" class="btn-sm">导出 SVG</button>
-        <button id="btnExportPNG" class="btn-sm">导出 PNG</button>
-        <button id="btnExportGIAOverlimit" class="btn-sm">导出超限模式 GIA</button>
-        <button id="btnExportGIAClassic" class="btn-sm">导出经典模式 GIA</button>
+        <div class="export-group">
+          <p class="export-group-title">进一步编辑</p>
+          <div class="export-stack">
+            <div class="export-action">
+              <button id="btnExportJSON" class="btn-sm">导出 JSON</button>
+              <button id="btnCopyJSON" class="btn-copy" type="button">复制</button>
+            </div>
+            <div class="export-action">
+              <button id="btnExportCSS" class="btn-sm">导出 CSS</button>
+              <button id="btnCopyCSS" class="btn-copy" type="button">复制</button>
+            </div>
+            <button id="btnExportSVG" class="btn-sm">导出 SVG</button>
+            <button id="btnExportPNG" class="btn-sm">导出 PNG</button>
+          </div>
+          <p class="hint">导出 JSON、CSS、SVG 可前往 <a href="https://qx.070077.xyz/" target="_blank" rel="noopener">qx.070077.xyz</a> 进行素材组编辑；导出 PNG 为拟合效果图。</p>
+        </div>
       </section>
 
       <section class="panel-section">

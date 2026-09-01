@@ -778,6 +778,41 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* ============================================================
    Export Section
    ============================================================ */
+.export-group {
+  margin-bottom: 14px;
+}
+.export-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--md-on-surface-variant);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-group-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--md-outline-variant);
+}
+.export-group .hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+.export-group .export-stack {
+  margin-bottom: 0;
+}
+.export-group .hint a {
+  color: var(--md-primary);
+  text-decoration: none;
+}
+.export-group .hint a:hover {
+  text-decoration: underline;
+}
+
 .export-stack {
   display: flex;
   flex-direction: column;
@@ -1798,10 +1833,6 @@ input[type="range"]:focus-visible {
 
 .export-stack .btn-sm {
   margin-bottom: 0;
-}
-
-.export-stack + .btn-sm {
-  margin-top: 8px;
 }
 
 .canvas-bar {
