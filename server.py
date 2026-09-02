@@ -808,6 +808,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     </aside>
   </div>
 
+  <script src="/web/local_fit.js?v={{ asset_version }}"></script>
   <script src="/web/app.js?v={{ asset_version }}"></script>
 </body>
 </html>"""
@@ -961,6 +962,9 @@ def retry(tid):
     old_task = tasks.get(tid)
     if not old_task or "image_bytes" not in old_task:
         return redirect("/")
+    # 本地任务源图可能尚未后台补传完成，此时无法在服务端重跑
+    if old_task.get("local") and not old_task.get("image_ready"):
+        return "原图尚未上传完成，暂时无法重新处理，请稍后再试", 409
 
     old_cfg = old_task.get("config", {})
     mode = old_cfg.get("mode", "fill")
@@ -1055,10 +1059,10 @@ def register_result():
             image_bytes = b""
 
     task_id = uuid.uuid4().hex[:8]
-    # 本地模式为减小请求体不再重复上传 canvas 重编码的原图，
-    # 此处直接用源图 base64 作为结果页底图（结果页按内容嗅探解码，兼容 JPG/PNG）
-    if image_b64 and not result_data.get("image_base64"):
-        result_data["image_base64"] = image_b64
+    # 兼容旧客户端：随请求带上源图 base64 时行为不变（注入底图、图片就绪）
+    if image_b64:
+        if not result_data.get("image_base64"):
+            result_data["image_base64"] = image_b64
     tasks[task_id] = {
         "status": "done",
         "ts": time.time(),
@@ -1067,6 +1071,9 @@ def register_result():
         "config": cfg,
         "result": result_data,
         "local": True,
+        # 新流程：寄存只传 elements/mask（瞬时），源图由结果页后台补传 /register_image
+        "image_ready": bool(image_bytes),
+        "image_content_type": "image/png",
     }
     logger.info(
         "task_register_local id=%s elements=%s image_name=%s bytes=%d",
@@ -1076,6 +1083,35 @@ def register_result():
         len(image_bytes),
     )
     return {"ok": True, "task_id": task_id}
+
+
+@app.route("/register_image/<tid>", methods=["POST"])
+def register_image(tid):
+    """本地模式延迟补传源图（二进制 body）。寄存只传 elements，图片在结果页后台补传。"""
+    task = tasks.get(tid)
+    if not task or not task.get("local"):
+        return {"ok": False, "error": "任务不存在"}, 404
+    image_bytes = request.get_data(cache=False)
+    if not image_bytes:
+        return {"ok": False, "error": "缺少图片数据"}, 400
+    if len(image_bytes) > app.config["MAX_CONTENT_LENGTH"]:
+        return {"ok": False, "error": "图片过大"}, 413
+    task["image_bytes"] = image_bytes
+    task["image_ready"] = True
+    content_type = (request.headers.get("Content-Type") or "").split(";")[0].strip()
+    if content_type and content_type.startswith("image/"):
+        task["image_content_type"] = content_type
+    logger.info("task_register_image id=%s bytes=%d", tid, len(image_bytes))
+    return {"ok": True}
+
+
+@app.route("/task_image/<tid>")
+def task_image(tid):
+    """按 task_id 取源图（本地模式结果页底图的按需加载）。"""
+    task = tasks.get(tid)
+    if not task or not task.get("image_bytes"):
+        return "图片不存在", 404
+    return Response(task["image_bytes"], mimetype=task.get("image_content_type", "image/png"))
 
 
 @app.route("/status/<tid>")
@@ -1099,9 +1135,19 @@ def result(tid):
 
     result_data = task["result"]
     cfg = task["config"]
+    if task.get("local"):
+        # 本地任务不把源图 base64 内嵌进 HTML（大图会让结果页达到几十 MB），
+        # 改为按需加载 /task_image；未补传完成时由前端走 IndexedDB/后台补传
+        render_data = dict(result_data)
+        render_data["image_base64"] = None
+        render_data["local_task"] = True
+        render_data["image_ready"] = bool(task.get("image_ready"))
+        render_data["image_url"] = f"/task_image/{tid}" if task.get("image_ready") else None
+    else:
+        render_data = result_data
     return render_template_string(
         PAGE_RESULT,
-        result_json=json.dumps(result_data),
+        result_json=json.dumps(render_data),
         config_json=json.dumps(cfg),
         task_id=tid,
         image_name_json=json.dumps(task.get("image_name", "")),

@@ -33,6 +33,9 @@
     mask: null,
   };
 
+  /* 本地任务：源图不内嵌 HTML，按 base64(云端/旧客户端) → image_url(已补传) → IndexedDB(待补传) 解析 */
+  const isLocalTask = Boolean(data.local_task);
+
   function isBackgroundElement(element) {
     return Boolean(element && element.is_background);
   }
@@ -84,6 +87,81 @@
       img.onerror = () => resolve(null);
       img.src = "data:;base64," + base64;
     });
+  }
+
+  function loadUrlImage(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+
+  function blobToImage(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("本地缓存图片解码失败"));
+      };
+      img.src = url;
+    });
+  }
+
+  /* 解析底图：返回 { image, url, blob }；全部缺失时返回 null（画布白底降级渲染） */
+  async function resolveBaseImage() {
+    if (data.image_base64) {
+      const image = await loadImage(data.image_base64);
+      return image ? { image: image, url: null, blob: null } : null;
+    }
+    if (data.image_url) {
+      const image = await loadUrlImage(data.image_url);
+      return image ? { image: image, url: data.image_url, blob: null } : null;
+    }
+    if (isLocalTask && window.LocalFit) {
+      try {
+        const blob = await window.LocalFit.idbLoadSourceImage(TASK_ID);
+        if (blob) {
+          const image = await blobToImage(blob);
+          return { image: image, url: image.src, blob: blob };
+        }
+      } catch (error) { /* 本地缓存不可用，降级 */ }
+    }
+    return null;
+  }
+
+  /* 本地任务重试门控：源图未补传到服务端前，/retry 无法在服务端重跑 */
+  function setRetryGate(disabled, text) {
+    ["retrySectionFill", "retrySectionOutline"].forEach((id) => {
+      const section = $(id);
+      if (!section) return;
+      section.querySelectorAll("button[type=submit]").forEach((button) => {
+        button.disabled = Boolean(disabled);
+        if (text) button.textContent = text;
+      });
+    });
+  }
+
+  /* 后台补传源图（非阻塞）：成功后解除重试门控；失败保持禁用并提示 */
+  function scheduleBackgroundUpload(blob) {
+    if (!isLocalTask || data.image_ready) return;
+    if (!blob || !window.LocalFit) {
+      setRetryGate(true, "原图未上传，无法重试");
+      return;
+    }
+    setRetryGate(true, "原图上传中…");
+    window.LocalFit.uploadSourceImage(TASK_ID, blob)
+      .then(() => {
+        data.image_ready = true;
+        data.image_url = "/task_image/" + TASK_ID;
+        setRetryGate(false, "重新处理");
+      })
+      .catch(() => {
+        setRetryGate(true, "原图上传失败，无法重试");
+      });
   }
 
   function cssColor(color, alphaOverride) {
@@ -594,19 +672,29 @@
     clearDetail();
 
     const [base, mask] = await Promise.all([
-      loadImage(data.image_base64),
+      resolveBaseImage(),
       loadImage(data.mask_base64),
     ]);
-    assets.base = base;
+    assets.base = base ? base.image : null;
     assets.mask = mask;
+
+    // 原图缩略图：内嵌 base64 / 服务端 URL / 本地 objectURL 三种来源
+    const thumbSrc = data.image_base64
+      ? "data:;base64," + data.image_base64
+      : (base && base.url) || data.image_url || "";
+    if ($("originalThumb") && thumbSrc) $("originalThumb").src = thumbSrc;
+
     render();
 
     // 将画布内容导出为拟合效果预览图
     if ($("previewImg")) {
       $("previewImg").src = data.preview_base64
-        ? "data:image/png;base64," + data.preview_base64
+        ? "data:;base64," + data.preview_base64
         : canvas.toDataURL("image/png");
     }
+
+    // 本地任务：后台补传源图，完成后解除重试门控
+    scheduleBackgroundUpload(base ? base.blob : null);
   }
 
   ["showImage", "showMask", "showFill", "showBorder", "showOrigin"].forEach((id) => {

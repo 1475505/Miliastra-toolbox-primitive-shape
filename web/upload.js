@@ -839,13 +839,28 @@
 
     try {
       setLocalProgress("本地引擎准备中…", 0);
-      const { result, sourceImageBase64 } = await window.LocalFit.fitOne(file, config, (done, total) => {
+      const { result, sourceBlob } = await window.LocalFit.fitOne(file, config, (done, total) => {
         setLocalProgress(`正在拟合（${done}/${total} 图元）`, (done / total) * 100);
       });
+      // 寄存只传 elements/mask（<1MB，瞬时）；源图不随请求上传
       setLocalProgress("正在寄存结果…", 100);
       const taskId = await window.LocalFit.registerResult(
-        result, config, file.name.replace(/\.[a-z0-9]+$/i, ""), sourceImageBase64
+        result, config, file.name.replace(/\.[a-z0-9]+$/i, "")
       );
+
+      // 源图存 IndexedDB：结果页立即可用作底图，并在后台补传服务端
+      let cached = false;
+      try {
+        await window.LocalFit.idbSaveSourceImage(taskId, sourceBlob);
+        cached = true;
+      } catch (error) { /* 隐私模式/配额受限，走同步回退 */ }
+
+      if (!cached) {
+        // 回退：直接同步补传源图（带进度），完成后再跳转，保证重试可用
+        await window.LocalFit.uploadSourceImage(taskId, sourceBlob, (done, total) => {
+          setLocalProgress(`正在上传原图（${Math.round((done / total) * 100)}%）`, (done / total) * 100);
+        });
+      }
       window.location.href = `/result/${taskId}`;
     } catch (error) {
       alert(`本地拟合失败：${(error && error.message) || error}`);

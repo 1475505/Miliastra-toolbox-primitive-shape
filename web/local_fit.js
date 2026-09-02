@@ -181,15 +181,60 @@
     });
   }
 
-  function fileToBase64(file) {
+  /* ------- 源图本地缓存（IndexedDB，key = task_id） -------
+   * 寄存只上传 elements/mask（瞬时）；源图存本地，由结果页作底图并在后台补传。
+   * 失败（隐私模式/配额）由调用方回退为同步上传。 */
+
+  const IDB_NAME = "shaper-local";
+  const IDB_STORE = "source_images";
+  const IDB_MAX_ENTRIES = 5;
+
+  function openImageDb() {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const url = String(reader.result || "");
-        resolve(url.slice(url.indexOf(",") + 1));
+      if (!window.indexedDB) {
+        reject(new Error("IndexedDB 不可用"));
+        return;
+      }
+      const request = window.indexedDB.open(IDB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE, { keyPath: "taskId" });
+        }
       };
-      reader.onerror = () => reject(reader.error || new Error("读取文件失败"));
-      reader.readAsDataURL(file);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("IndexedDB 打开失败"));
+    });
+  }
+
+  async function idbSaveSourceImage(taskId, blob) {
+    const db = await openImageDb();
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put({ taskId: taskId, blob: blob, ts: Date.now() });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB 写入失败"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB 写入中断"));
+    });
+    // 简单 LRU：只保留最近 IDB_MAX_ENTRIES 条
+    try {
+      const pruneTx = db.transaction(IDB_STORE, "readwrite");
+      const store = pruneTx.objectStore(IDB_STORE);
+      const allReq = store.getAll();
+      allReq.onsuccess = () => {
+        const rows = (allReq.result || []).sort((a, b) => b.ts - a.ts);
+        rows.slice(IDB_MAX_ENTRIES).forEach((row) => store.delete(row.taskId));
+      };
+    } catch (error) { /* 清理失败不影响主流程 */ }
+  }
+
+  async function idbLoadSourceImage(taskId) {
+    const db = await openImageDb();
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const request = tx.objectStore(IDB_STORE).get(taskId);
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result ? request.result.blob : null);
+      request.onerror = () => reject(request.error || new Error("IndexedDB 读取失败"));
     });
   }
 
@@ -560,7 +605,8 @@
     }
 
     result.elapsed_seconds = Math.round(((performance.now() - startedAt) / 1000) * 100) / 100;
-    return { result, sourceImageBase64: await fileToBase64(file) };
+    // 源图以 Blob 返回：寄存请求不携带（瘦身），由上传页存 IndexedDB、结果页后台补传
+    return { result, sourceBlob: file };
   }
 
   /* 单实例一次性拟合（兜底路径） */
@@ -621,9 +667,9 @@
     return finishData.json;
   }
 
-  /* ------- 寄存结果并跳转 ------- */
+  /* ------- 寄存结果（仅 elements/mask，瞬时）与源图补传 ------- */
 
-  async function registerResult(result, config, imageName, sourceImageBase64) {
+  async function registerResult(result, config, imageName) {
     const response = await fetch("/register_result", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -631,7 +677,6 @@
         result: result,
         config: config,
         image_name: imageName,
-        image_base64: sourceImageBase64 || "",
       }),
     });
     if (!response.ok) {
@@ -643,6 +688,34 @@
     return payload.task_id;
   }
 
+  /* 源图补传：二进制 body + 上传进度回调。sync=true 用于 IndexedDB 不可用时的同步回退 */
+  function uploadSourceImage(taskId, blob, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/register_image/${encodeURIComponent(taskId)}`);
+      xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          onProgress(event.loaded, event.total);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          let message = "HTTP " + xhr.status;
+          try {
+            const payload = JSON.parse(xhr.responseText || "{}");
+            if (payload.error) message = payload.error;
+          } catch (error) { /* 非 JSON 响应，用默认信息 */ }
+          reject(new Error("源图上传失败: " + message));
+        }
+      };
+      xhr.onerror = () => reject(new Error("源图上传失败：网络错误"));
+      xhr.send(blob);
+    });
+  }
+
   window.LocalFit = {
     ensureReady,
     engineStatus,
@@ -650,5 +723,8 @@
     poolSize,
     fitOne,
     registerResult,
+    uploadSourceImage,
+    idbSaveSourceImage,
+    idbLoadSourceImage,
   };
 })();
