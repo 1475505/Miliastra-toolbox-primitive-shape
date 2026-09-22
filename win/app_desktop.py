@@ -41,6 +41,7 @@ def _dialog_file_types(filename):
         ".css": "CSS files (*.css)",
         ".gia": "GIA files (*.gia)",
         ".json": "JSON files (*.json)",
+        ".lua": "Lua files (*.lua)",
         ".png": "PNG files (*.png)",
         ".svg": "SVG files (*.svg)",
     }

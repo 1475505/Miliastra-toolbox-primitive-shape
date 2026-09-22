@@ -68,7 +68,7 @@
       .trim()
       .replace(/[<>:"/\\|?*\x00-\x1f]+/g, "_")
       .replace(/\s+/g, " ");
-    const baseName = safeName.replace(/\.(json|css|svg|png|gia)$/i, "").trim();
+    const baseName = safeName.replace(/\.(json|css|svg|png|gia|lua)$/i, "").trim();
     return baseName || defaultExportBaseName;
   }
 
@@ -477,31 +477,7 @@
       .then((blob) => saveBlob(blob, name));
   }
 
-  async function copyTextToClipboard(text) {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "readonly");
-    textarea.style.position = "fixed";
-    textarea.style.top = "-9999px";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-
-    try {
-      if (!document.execCommand("copy")) {
-        throw new Error("copy command failed");
-      }
-      return true;
-    } finally {
-      textarea.remove();
-    }
-  }
+  const copyTextToClipboard = (text) => window.ShaperClipboard.copy(text);
 
   function setTemporaryButtonState(button, text, className) {
     if (!button) return;
@@ -958,6 +934,35 @@
     });
   }
 
+  for (const [buttonId, copy] of [["btnExportLua", false], ["btnCopyLua", true]]) {
+    const button = $(buttonId);
+    if (!button) continue;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const qs = new URLSearchParams({ export_name: currentExportBaseName() }).toString();
+        const response = await fetch(`/download_lua/${encodeURIComponent(window.TASK_ID || "")}?${qs}`);
+        const text = await response.text();
+        if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
+        if (copy) {
+          await copyTextToClipboard(text);
+          setTemporaryButtonState(button, "已复制", "is-success");
+        } else {
+          await saveBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), exportFileName("lua"));
+        }
+      } catch (error) {
+        alert(`${copy ? "复制" : "导出"}失败: ${error.message || error}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
   window.addEventListener("resize", render);
+  // Toolbars and image previews can resize the canvas area without a window resize.
+  if (window.ResizeObserver) {
+    const canvasObserver = new ResizeObserver(render);
+    canvasObserver.observe($("canvasWrap"));
+  }
   init();
 })();

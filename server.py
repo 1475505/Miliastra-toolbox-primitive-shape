@@ -25,6 +25,8 @@ else:
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+import lua_export
+import gia_lua
 import shaper_core
 
 
@@ -54,6 +56,7 @@ def _compute_web_asset_version():
         os.path.join(WEB_DIR, "style.css"),
         os.path.join(WEB_DIR, "upload.js"),
         os.path.join(WEB_DIR, "app.js"),
+        os.path.join(WEB_DIR, "clipboard.js"),
     ]
     mtimes = []
     for path in asset_paths:
@@ -232,6 +235,27 @@ def _run_cli(args):
     result = shaper_core.process_image(image_bytes, cfg)
     origin_default = result.get("image_center", {"x": 0, "y": 0})
     image_name = args.name if args.name else os.path.basename(input_path)
+
+    if args.export == "lua":
+        try:
+            lua_text = lua_export.build_lua_export_text(result, image_name=image_name)
+        except Exception as exc:
+            logger.exception("cli_lua_export_error")
+            print(f"导出 Lua 失败: {exc}")
+            return 1
+        base_name = _export_basename(image_name)
+        output_path = os.path.abspath(args.output or os.path.join(os.getcwd(), f"{base_name}.lua"))
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(lua_text)
+        print(f"Generated Lua: {output_path}")
+        print(f"Mode: {result.get('mode')}")
+        print(f"Elements: {result.get('elements_count')}")
+        print(f"Elapsed: {result.get('elapsed_seconds')}s")
+        return 0
+
     gia_bytes = _convert_result_to_gia_bytes(
         result_data=result,
         cfg=cfg,
@@ -288,6 +312,7 @@ def _create_arg_parser():
     parser.add_argument("--spacing", type=float, default=0.9, help="outline mode spacing")
     parser.add_argument("--precision", type=float, default=0.3, help="outline mode precision")
     parser.add_argument("--gia-mode", choices=["overlimit", "classic"], default="overlimit", help="GIA output mode for CLI (default: overlimit)")
+    parser.add_argument("--export", choices=["gia", "lua"], default="gia", help="CLI export format: gia (default) or lua client script")
     return parser
 
 
@@ -305,11 +330,11 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
 <body class="page-upload" data-default-fit-mode="{{ default_fit_mode }}">
   <header class="topbar">
     <div class="topbar-left">
-      <a href="/" style="text-decoration:none;"><h1>图片图元拟合</h1></a>
+      <a href="/" class="brand-link"><h1>图片图元拟合</h1></a>
       <span class="topbar-subtitle">默认填充模式 · 默认仅圆形</span>
       <nav class="tool-tabs" aria-label="工具页签">
         <button type="button" id="imageToolTab" class="tool-tab active">图片拟合</button>
-        <button type="button" id="classicToolTab" class="tool-tab">GIA模式转换</button>
+        <button type="button" id="classicToolTab" class="tool-tab">GIA转换</button>
       </nav>
       <a href="#" id="outlineLink" class="topbar-link topbar-link-subtle">装饰物</a>
     </div>
@@ -321,230 +346,227 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
   </header>
 
   <div class="app-layout" id="imageToolPage">
-    <aside class="panel panel-left">
+    <main class="fit-workspace">
       <form id="mainForm" action="/submit" method="POST" enctype="multipart/form-data">
         <input type="hidden" name="mode" id="modeInput" value="fill">
         <input type="hidden" name="primitives_json" id="primJson">
-
-        <section class="panel-section" id="localModeSection">
-          <h3>运行方式</h3>
-          <div class="engine-card" id="engineCard">
-            <div class="engine-card-head">
-              <label class="switch" for="localModeToggle">
-                <input type="checkbox" id="localModeToggle">
-                <span class="switch-track"><span class="switch-thumb"></span></span>
-              </label>
-              <div class="engine-card-title">
-                <strong>本地模式</strong>
-                <span class="engine-badge" id="engineBadge">云端引擎</span>
-              </div>
-            </div>
-            <p class="hint" id="engineHint">云端模式：由服务器完成拟合计算。</p>
-            <div class="engine-status" id="engineStatus" hidden>
-              <span class="engine-status-dot"></span>
-              <span id="engineStatusText">本地引擎加载中…</span>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel-section">
-          <h3>输入图片</h3>
-          <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="上传图片，点击、拖拽或 Ctrl+V 粘贴">
-            <div class="drop-zone-content">
-              <span class="drop-icon">图片</span>
-              <p>点击、拖拽或 <strong>Ctrl+V</strong> 粘贴图片</p>
-            </div>
-            <input type="file" id="fileInput" name="image" accept="image/png,image/jpeg,image/webp" required hidden>
-            <img id="prev" class="preview-img" hidden>
-            <span id="fname" class="file-name"></span>
-            <span id="imgSize" class="img-size"></span>
-            <div id="uploadReady" class="upload-ready" hidden aria-live="polite">已选择图片</div>
-            <div id="uploadWarning" class="upload-warning" hidden aria-live="polite">不建议上传分辨率较大的图片，会很慢</div>
-          </div>
-          <p class="hint">支持 PNG / JPG / WEBP。仅在开启 PNG 模式时才会直接使用透明通道；否则会先铺白底，再生成遮罩。</p>
-        </section>
-
-        <!-- 图元 / 装饰物配置 -->
-        <section class="panel-section" id="shapeTypeSection">
-          <h3 id="shapeSectionTitle">图元类型</h3>
-
-          <div id="fillShapeSection">
-            <div class="shape-checks">
-              <label class="shape-check active">
-                <input type="checkbox" name="shape_circle" id="shapeCircle" checked>
-                <span class="shape-icon">○</span>
-                <span>圆形</span>
-              </label>
-              <label class="shape-check">
-                <input type="checkbox" name="shape_rect" id="shapeRect">
-                <span class="shape-icon">□</span>
-                <span>矩形</span>
-              </label>
-              <label class="shape-check" id="triangleCheckLabel">
-                <input type="checkbox" name="shape_triangle" id="shapeTriangle">
-                <span class="shape-icon">△</span>
-                <span>三角形</span>
-              </label>
-            </div>
-            <p class="hint" id="shapeHint">默认只启用圆形；需要时再叠加矩形或三角形。</p>
-          </div>
-
-          <div id="primitiveListSection" hidden>
-            <div class="outline-intro">
-              <strong>装饰物元件列表</strong>
-              <span>装饰物模式会优先使用这里的元件参数，生成结果时保留类型 ID、元件类型和旋转设置。</span>
-            </div>
-            <div class="primitive-toolbar">
-              <button type="button" id="addCirclePrimitiveBtn" class="btn-chip">+ 圆形元件</button>
-              <button type="button" id="addRectPrimitiveBtn" class="btn-chip">+ 矩形元件</button>
-            </div>
-            <p class="hint" id="primitiveCountHint">建议至少保留一种元件类型。</p>
-            <div id="primitiveList" class="primitive-list"></div>
-            <div id="primitiveEmpty" class="primitive-empty" hidden>
-              <p>还没有装饰物元件</p>
-              <span>先添加一个元件，再选择预设或手动填写参数。</span>
-            </div>
-          </div>
-        </section>
-
-        <div id="fillParams">
-          <section class="panel-section">
-            <h3>拟合参数</h3>
-            <div class="param-item">
-              <div class="param-head">
-                <span class="param-title">图元数量</span>
-                <span id="numPrimsVal" class="val-tag">400</span>
-              </div>
-              <p class="param-desc">越多越细，但耗时也更高。</p>
-              <input type="range" name="num_primitives" id="numPrims" min="40" max="1200" step="10" value="400">
-              <input type="number" name="num_primitives_manual" id="numPrimsManual" min="40" max="3000" value="400" class="num-input" style="margin-top:8px;width:100%;">
-            </div>
-
-            <div class="param-item">
-              <div class="param-head">
-                <span class="param-title">输出尺寸</span>
-                <span id="outputSizeVal" class="val-tag">缩放 ×1.0</span>
-              </div>
-              <p class="param-desc">按比例缩放与指定分辨率二选一。</p>
-              <div class="seg-toggle" id="outputSizeToggle">
-                <button type="button" class="seg-btn active" id="segScale" data-mode="scale">按比例缩放</button>
-                <button type="button" class="seg-btn" id="segTarget" data-mode="target">指定分辨率</button>
-              </div>
-
-              <div id="scalePanel" class="output-size-panel">
-                <div class="scale-row">
-                  <input type="range" name="image_scale" id="imageScale" min="0.2" max="4" step="0.1" value="1.0">
-                  <span id="imageScaleVal" class="val-tag">1.0</span>
+        <div class="form-column settings-column">
+          <div class="settings-scroll">
+            <section class="panel-section" id="localModeSection">
+              <h3>运行方式</h3>
+              <div class="engine-card" id="engineCard">
+                <div class="engine-card-head">
+                  <label class="switch" for="localModeToggle">
+                    <input type="checkbox" id="localModeToggle">
+                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                  </label>
+                  <div class="engine-card-title">
+                    <strong>本地模式</strong>
+                    <span class="engine-badge" id="engineBadge">云端引擎</span>
+                  </div>
                 </div>
-                <p class="hint">1.0 表示导出尺寸与原图分辨率一致。</p>
-              </div>
-
-              <div id="targetPanel" class="output-size-panel" hidden>
-                <input type="checkbox" name="enable_target_resolution" id="enableTargetRes" hidden>
-                <div class="target-res-row" id="targetResRow">
-                  <input type="number" name="target_width" id="targetWidth" min="16" max="4096" step="1" placeholder="宽" class="num-input">
-                  <span class="target-res-x">×</span>
-                  <input type="number" name="target_height" id="targetHeight" min="16" max="4096" step="1" placeholder="高" class="num-input">
-                  <button type="button" id="targetResLock" class="btn-chip lock-btn active" title="锁定宽高比">等比</button>
+                <p class="hint" id="engineHint">云端模式：由服务器完成拟合计算。</p>
+                <div class="engine-status" id="engineStatus" hidden>
+                  <span class="engine-status-dot"></span>
+                  <span id="engineStatusText">本地引擎加载中…</span>
                 </div>
-                <p class="hint" id="targetResHint">按原图比例联动；取消「等比」可自由拉伸。指定分辨率时缩放按 1.0 处理。</p>
               </div>
+            </section>
+
+            <section class="panel-section" id="shapeTypeSection">
+              <h3 id="shapeSectionTitle">图元类型</h3>
+
+              <div id="fillShapeSection">
+                <div class="shape-checks">
+                  <label class="shape-check active">
+                    <input type="checkbox" name="shape_circle" id="shapeCircle" checked>
+                    <span class="shape-icon">○</span>
+                    <span>圆形</span>
+                  </label>
+                  <label class="shape-check">
+                    <input type="checkbox" name="shape_rect" id="shapeRect">
+                    <span class="shape-icon">□</span>
+                    <span>矩形</span>
+                  </label>
+                  <label class="shape-check" id="triangleCheckLabel">
+                    <input type="checkbox" name="shape_triangle" id="shapeTriangle">
+                    <span class="shape-icon">△</span>
+                    <span>三角形</span>
+                  </label>
+                </div>
+                <p class="hint" id="shapeHint">默认只启用圆形；需要时再叠加矩形或三角形。</p>
+              </div>
+
+              <div id="primitiveListSection" hidden>
+                <div class="outline-intro">
+                  <strong>装饰物元件列表</strong>
+                  <span>装饰物模式会优先使用这里的元件参数，生成结果时保留类型 ID、元件类型和旋转设置。</span>
+                </div>
+                <div class="primitive-toolbar">
+                  <button type="button" id="addCirclePrimitiveBtn" class="btn-chip">+ 圆形元件</button>
+                  <button type="button" id="addRectPrimitiveBtn" class="btn-chip">+ 矩形元件</button>
+                </div>
+                <p class="hint" id="primitiveCountHint">建议至少保留一种元件类型。</p>
+                <div id="primitiveList" class="primitive-list"></div>
+                <div id="primitiveEmpty" class="primitive-empty" hidden>
+                  <p>还没有装饰物元件</p>
+                  <span>先添加一个元件，再选择预设或手动填写参数。</span>
+                </div>
+              </div>
+            </section>
+
+            <div id="fillParams">
+              <section class="panel-section">
+                <h3>拟合参数</h3>
+                <div class="param-item">
+                  <div class="param-head">
+                    <span class="param-title">图元数量</span>
+                    <span id="numPrimsVal" hidden>400</span>
+                  </div>
+                  <p class="param-desc">越多越细，但耗时也更高。</p>
+                  <div class="primitive-count-row">
+                    <input type="range" name="num_primitives" id="numPrims" min="40" max="1200" step="10" value="400" aria-label="图元数量">
+                    <input type="number" name="num_primitives_manual" id="numPrimsManual" min="40" max="3000" value="400" class="num-input" aria-label="手动输入图元数量">
+                  </div>
+                </div>
+
+                <div class="param-item">
+                  <div class="param-head">
+                    <span class="param-title">输出尺寸</span>
+                    <span id="outputSizeVal" class="val-tag">缩放 ×1.0</span>
+                  </div>
+                  <div class="seg-toggle" id="outputSizeToggle">
+                    <button type="button" class="seg-btn active" id="segScale" data-mode="scale">按比例缩放</button>
+                    <button type="button" class="seg-btn" id="segTarget" data-mode="target">指定分辨率</button>
+                  </div>
+
+                  <div id="scalePanel" class="output-size-panel">
+                    <div class="scale-row">
+                      <input type="range" name="image_scale" id="imageScale" min="0.2" max="4" step="0.1" value="1.0">
+                      <span id="imageScaleVal" class="val-tag">1.0</span>
+                    </div>
+                    <p class="hint">1.0 表示导出尺寸与原图分辨率一致。</p>
+                  </div>
+
+                  <div id="targetPanel" class="output-size-panel" hidden>
+                    <input type="checkbox" name="enable_target_resolution" id="enableTargetRes" hidden>
+                    <div class="target-res-row" id="targetResRow">
+                      <input type="number" name="target_width" id="targetWidth" min="16" max="4096" step="1" placeholder="宽" class="num-input">
+                      <span class="target-res-x">×</span>
+                      <input type="number" name="target_height" id="targetHeight" min="16" max="4096" step="1" placeholder="高" class="num-input">
+                      <button type="button" id="targetResLock" class="btn-chip lock-btn active" title="锁定宽高比">等比</button>
+                    </div>
+                    <p class="hint" id="targetResHint">按原图比例联动；取消「等比」可自由拉伸。指定分辨率时缩放按 1.0 处理。</p>
+                  </div>
+                </div>
+
+                <div class="param-item">
+                  <div class="param-head">
+                    <span class="param-title">透明度</span>
+                    <span id="outputAlphaVal" class="val-tag">100%</span>
+                  </div>
+                  <p class="param-desc">100% 不透明，0% 完全透明。</p>
+                  <input type="range" name="output_alpha" id="outputAlpha" min="0" max="100" step="5" value="100">
+                </div>
+
+                <div class="param-item">
+                  <label class="png-mode-toggle">
+                    <input type="checkbox" name="enable_png_mode" id="enablePngMode">
+                    <span>启用 PNG 模式</span>
+                  </label>
+                  <p class="param-desc">保留 PNG 的透明背景；关闭时先铺白底再拟合。</p>
+                </div>
+              </section>
             </div>
 
-            <div class="param-item">
-              <div class="param-head">
-                <span class="param-title">透明度</span>
-                <span id="outputAlphaVal" class="val-tag">100%</span>
-              </div>
-              <p class="param-desc">100% 表示不透明；完全透明0%。</p>
-              <input type="range" name="output_alpha" id="outputAlpha" min="0" max="100" step="5" value="100">
+            <div id="outlineParams" hidden>
+              <section class="panel-section">
+                <h3>轮廓参数</h3>
+                <div class="param-item">
+                  <div class="param-head">
+                    <span class="param-title">图元大小</span>
+                    <span id="olPrimSizeVal" class="val-tag">30</span>
+                  </div>
+                  <p class="param-desc">轮廓模式下每个图元的基础尺寸。</p>
+                  <input type="range" name="ol_primitive_size" id="olPrimSize" min="3" max="200" step="1" value="30">
+                </div>
+
+                <div class="param-item">
+                  <div class="param-head">
+                    <span class="param-title">间距</span>
+                    <span id="olSpacingVal" class="val-tag">0.9</span>
+                  </div>
+                  <p class="param-desc">图元之间的间距比例，越大越密。</p>
+                  <input type="range" name="ol_spacing" id="olSpacing" min="0.1" max="1.0" step="0.05" value="0.9">
+                </div>
+
+                <div class="param-item">
+                  <div class="param-head">
+                    <span class="param-title">精度</span>
+                    <span id="olPrecisionVal" class="val-tag">0.3</span>
+                  </div>
+                  <p class="param-desc">拟合精度，越高越精细但更慢。</p>
+                  <input type="range" name="ol_precision" id="olPrecision" min="0.0" max="1.0" step="0.05" value="0.3">
+                </div>
+              </section>
             </div>
 
-            <div class="param-item">
-              <div class="param-head">
-                <span class="param-title">PNG 模式</span>
-                <span class="val-tag">可选</span>
+            <details class="upload-guide">
+              <summary>使用说明</summary>
+              <div class="guide-content">
+              <section>
+                <h3>流程</h3>
+                <ol class="steps">
+                  <li>上传图片</li>
+                  <li>确认图元和算法参数</li>
+                  <li>预览效果，导出 GIA / Lua / CSS 等格式</li>
+                </ol>
+              </section>
+              <section>
+                <ul class="tips">
+                  <li><strong>禁止拟合政治、人物、事件、OOC等任何不适合的内容</strong></li>
+                  <li><strong>请合理使用本工具生成的gia资产，不要上传到资产中心等，若造成不良影响与工具作者无关，</strong></li>
+                  <li>目前对三角形和矩形支持不友好，多类型图形的效果较差</li>
+                  <li>PNG 图片默认会将透明区域与白色背景混合。如需保留透明背景，请在参数中开启「PNG 模式」。</li>
+                  <li>之前用于拼字的系统：<a href="https://qx-shaper.up.railway.app" target="_blank" rel="noopener noreferrer">qx-shaper.up.railway.app</a></li>
+                  <li>使用教程：<a href="https://www.bilibili.com/video/BV1kKDyB9EvY" target="_blank" rel="noopener noreferrer">BV1kKDyB9EvY</a></li>
+                  <li>用户 QQ 群：<a href="https://qm.qq.com/cgi-bin/qm/qr?k=1007538100" target="_blank" rel="noopener noreferrer">1007538100</a></li>
+                </ul>
+              </section>
               </div>
-              <p class="param-desc">默认关闭。仅对带透明通道的 PNG 生效；开启后直接按透明通道拟合并保留透明背景，关闭时会改为白底加遮罩流程。</p>
-              <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-main);cursor:pointer;">
-                <input type="checkbox" name="enable_png_mode" id="enablePngMode">
-                <span>启用 PNG 模式</span>
-              </label>
+            </details>
+          </div>
+          <section class="panel-section section-submit">
+            <button type="submit" id="btnSubmit" class="btn-primary">开始处理</button>
+            <div id="localProgress" class="local-progress" hidden>
+              <div class="local-progress-head">
+                <span id="localProgressText">本地引擎准备中…</span>
+                <span id="localProgressPct" class="val-tag">0%</span>
+              </div>
+              <div class="local-progress-bar"><span id="localProgressFill"></span></div>
             </div>
           </section>
         </div>
-
-        <div id="outlineParams" hidden>
-          <section class="panel-section">
-            <h3>轮廓参数</h3>
-            <div class="param-item">
-              <div class="param-head">
-                <span class="param-title">图元大小</span>
-                <span id="olPrimSizeVal" class="val-tag">30</span>
+        <div class="form-column source-column">
+          <section class="panel-section section-input">
+            <h3>输入图片</h3>
+            <div id="dropZone" class="drop-zone" role="button" tabindex="0" aria-label="上传图片，点击、拖拽或 Ctrl+V 粘贴">
+              <div class="drop-zone-content">
+                <span class="drop-icon" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m3 17 5-5 4 4 3-3 6 6"/></svg></span>
+                <p>点击、拖拽或 <strong>Ctrl+V</strong> 粘贴图片</p>
               </div>
-              <p class="param-desc">轮廓模式下每个图元的基础尺寸。</p>
-              <input type="range" name="ol_primitive_size" id="olPrimSize" min="3" max="200" step="1" value="30">
+              <input type="file" id="fileInput" name="image" accept="image/png,image/jpeg,image/webp" required hidden>
+              <img id="prev" class="preview-img" hidden>
+              <span id="fname" class="file-name"></span>
+              <span id="imgSize" class="img-size"></span>
+              <div id="uploadReady" class="upload-ready" hidden aria-live="polite">已选择图片</div>
+              <div id="uploadWarning" class="upload-warning" hidden aria-live="polite">不建议上传分辨率较大的图片，会很慢</div>
             </div>
-
-            <div class="param-item">
-              <div class="param-head">
-                <span class="param-title">间距</span>
-                <span id="olSpacingVal" class="val-tag">0.9</span>
-              </div>
-              <p class="param-desc">图元之间的间距比例，越大越密。</p>
-              <input type="range" name="ol_spacing" id="olSpacing" min="0.1" max="1.0" step="0.05" value="0.9">
-            </div>
-
-            <div class="param-item">
-              <div class="param-head">
-                <span class="param-title">精度</span>
-                <span id="olPrecisionVal" class="val-tag">0.3</span>
-              </div>
-              <p class="param-desc">拟合精度，越高越精细但更慢。</p>
-              <input type="range" name="ol_precision" id="olPrecision" min="0.0" max="1.0" step="0.05" value="0.3">
-            </div>
+            <p class="hint">支持 PNG / JPG / WEBP；透明背景请开启「PNG 模式」。</p>
           </section>
         </div>
-
-        <section class="panel-section section-submit">
-          <button type="submit" id="btnSubmit" class="btn-primary">开始处理</button>
-          <div id="localProgress" class="local-progress" hidden>
-            <div class="local-progress-head">
-              <span id="localProgressText">本地引擎准备中…</span>
-              <span id="localProgressPct" class="val-tag">0%</span>
-            </div>
-            <div class="local-progress-bar"><span id="localProgressFill"></span></div>
-          </div>
-        </section>
       </form>
-    </aside>
-
-    <aside class="panel panel-right">
-      <section class="panel-section guide-card">
-        <h3>流程</h3>
-        <ol class="steps">
-          <li>上传图片</li>
-          <li>确认图元和算法参数</li>
-          <li>生成预览并导出 GIA / JSON / PNG</li>
-        </ol>
-        <div class="m3-notice notice-info" role="status">
-          <span class="notice-icon" aria-hidden="true">i</span>
-          <div class="notice-body">
-            <strong class="notice-title">迁移通知</strong>
-            <p class="notice-text">由于成本原因，2026 年 9 月 12 日起服务会迁移到新域名 <a href="https://qx-img.070077.xyz/" target="_blank" rel="noopener noreferrer">https://qx-img.070077.xyz/</a>，请加入用户 QQ 群或关注 B 站获取最新消息。</p>
-          </div>
-        </div>
-        <ul class="tips">
-          <li><strong>禁止拟合政治、人物、事件、OOC等任何不适合的内容</strong></li>
-          <li><strong>请合理使用本工具生成的gia资产，不要上传到资产中心等，若造成不良影响与工具作者无关，</strong></li>
-          <li>目前对三角形和矩形支持不友好，多类型图形的效果较差</li>
-          <li>PNG 图片默认会将透明区域与白色背景混合。如需保留透明背景，请在参数中开启「PNG 模式」。</li>
-          <li>之前用于拼字的系统：<a href="https://qx-shaper.up.railway.app" target="_blank" rel="noopener noreferrer">qx-shaper.up.railway.app</a></li>
-          <li>使用教程：<a href="https://www.bilibili.com/video/BV1kKDyB9EvY" target="_blank" rel="noopener noreferrer">BV1kKDyB9EvY</a></li>
-          <li>用户 QQ 群：<a href="https://qm.qq.com/cgi-bin/qm/qr?k=1007538100" target="_blank" rel="noopener noreferrer">1007538100</a></li>
-        </ul>
-      </section>
-    </aside>
+    </main>
   </div>
 
   <div class="app-layout" id="classicToolPage" hidden>
@@ -562,6 +584,10 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
               <input type="radio" name="direction_radio" id="dirClassicToOver" value="classic_to_overlimit">
               <span>经典模式转超限模式</span>
             </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-main);cursor:pointer;">
+              <input type="radio" name="direction_radio" id="dirGiaToLua" value="gia_to_lua">
+              <span>素材组 GIA 转 Lua 绘制脚本（超限模式）</span>
+            </label>
           </div>
         </section>
 
@@ -577,10 +603,16 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
             <div id="classicGiaReady" class="upload-ready" hidden>已选择 GIA</div>
           </div>
           <p class="hint" id="classicHint">转换会为 GIA 写入经典模式标记，原始文件不会被修改。</p>
+          <label id="giaLuaMaskOption" hidden>
+            <input type="checkbox" name="ignore_mask" value="1">
+            忽略组遮罩，绘制全部图片（裁剪范围外的内容也会显示）
+          </label>
         </section>
 
         <section class="panel-section section-submit">
           <button type="submit" id="btnConvertClassicGia" class="btn-primary">导出经典模式 GIA</button>
+          <button type="submit" name="lua_action" value="copy" id="btnCopyGiaLua" class="btn-sm" hidden>复制 Lua</button>
+          <p id="giaLuaCopyStatus" class="hint" role="status" aria-live="polite"></p>
         </section>
       </form>
     </aside>
@@ -600,7 +632,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
           <li>写入经典模式标记</li>
           <li>下载新的经典模式 .gia</li>
         </ol>
-        <ul class="tips">
+        <ul class="tips" id="classicModeTips">
           <li>只处理 GIA 文件头部的模式字段，不会重新生成素材内容。</li>
           <li>如果文件已经是目标模式，也会重新导出为目标模式文件。</li>
         </ul>
@@ -608,6 +640,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
     </aside>
   </div>
 
+  <script src="/web/clipboard.js?v={{ asset_version }}"></script>
   <script src="/web/local_fit.js?v={{ asset_version }}"></script>
   <script src="/web/upload.js?v={{ asset_version }}"></script>
 </body>
@@ -624,7 +657,7 @@ PAGE_STATUS = r"""<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
 </head>
-<body>
+<body class="page-status">
   <div class="loading-overlay">
     <div class="spinner"></div>
     <h2 style="margin-top:20px;font-weight:600;color:var(--md-on-surface)">处理中 ({{ elapsed }}s)</h2>
@@ -651,10 +684,10 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     var TASK_IMAGE_NAME={{ image_name_json|safe }};
   </script>
 </head>
-<body>
+<body class="page-result">
   <header class="topbar">
     <div class="topbar-left">
-      <a href="/" style="text-decoration:none;"><h1>图片图元拟合</h1></a>
+      <a href="/" class="brand-link"><h1>图片图元拟合</h1></a>
       <span class="topbar-subtitle" id="modeLabel">填充拟合</span>
     </div>
     <div class="topbar-right">
@@ -672,11 +705,21 @@ PAGE_RESULT = r"""<!DOCTYPE html>
           <input type="text" id="exportFileName" autocomplete="off">
           <p class="hint">默认与原文件名一致，同时用于 GIA 素材组名称。</p>
         </div>
+        <a class="editor-link" href="https://qx.070077.xyz/" target="_blank" rel="noopener noreferrer" aria-label="导入 CSS 进一步编辑（在新窗口打开）">导入 CSS 进一步编辑 ↗</a>
         <div class="export-group">
           <p class="export-group-title">素材组资产</p>
           <div class="export-stack">
             <button id="btnExportGIAOverlimit" class="btn-sm">导出超限模式 GIA</button>
             <button id="btnExportGIAClassic" class="btn-sm">导出经典模式 GIA</button>
+          </div>
+        </div>
+        <div class="export-group">
+          <p class="export-group-title">客户端脚本</p>
+          <div class="export-stack">
+            <div class="export-action">
+              <button id="btnExportLua" class="btn-sm">导出 Lua</button>
+              <button id="btnCopyLua" class="btn-copy" type="button">复制</button>
+            </div>
           </div>
         </div>
         <div class="export-group">
@@ -693,7 +736,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
             <button id="btnExportSVG" class="btn-sm">导出 SVG</button>
             <button id="btnExportPNG" class="btn-sm">导出 PNG</button>
           </div>
-          <p class="hint">导出 JSON、CSS、SVG 可前往 <a href="https://qx.070077.xyz/" target="_blank" rel="noopener">qx.070077.xyz</a> 进行素材组编辑；导出 PNG 为拟合效果图。</p>
+          <p class="hint">JSON、CSS、SVG 可用于素材组编辑；PNG 用于保存拟合效果图。</p>
         </div>
       </section>
 
@@ -808,6 +851,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
     </aside>
   </div>
 
+  <script src="/web/clipboard.js?v={{ asset_version }}"></script>
   <script src="/web/local_fit.js?v={{ asset_version }}"></script>
   <script src="/web/app.js?v={{ asset_version }}"></script>
 </body>
@@ -1289,6 +1333,28 @@ def download_classic_gia(tid):
     return response
 
 
+@app.route("/download_lua/<tid>")
+def download_lua(tid):
+    task = tasks.get(tid)
+    if not task or "result" not in task:
+        return "任务不存在", 404
+
+    result_data = task["result"]
+    export_name = request.args.get("export_name", "")
+    resolved_image_name = export_name or task.get("image_name", "")
+
+    try:
+        lua_text = lua_export.build_lua_export_text(result_data, image_name=resolved_image_name)
+    except Exception as exc:
+        logger.exception("lua_export_error task_id=%s", tid)
+        return f"导出 Lua 失败: {exc}", 400
+
+    response = Response(lua_text, mimetype="text/plain; charset=utf-8")
+    download_name = f"{_export_basename(resolved_image_name)}.lua"
+    response.headers["Content-Disposition"] = _attachment_filename(download_name)
+    return response
+
+
 @app.route("/convert_gia_mode", methods=["POST"])
 def convert_gia_mode():
     upload = request.files.get("gia")
@@ -1303,6 +1369,11 @@ def convert_gia_mode():
     source_name = _derive_upload_image_name(upload.filename) or "gia_mode"
 
     try:
+        if direction == "gia_to_lua":
+            lua_text = gia_lua.build_gia_lua(blob, source_name, ignore_mask=request.form.get("ignore_mask") == "1")
+            response = Response(lua_text, mimetype="text/plain; charset=utf-8")
+            response.headers["Content-Disposition"] = _attachment_filename(f"{_export_basename(source_name)}.lua")
+            return response
         if direction == "classic_to_overlimit":
             mod = _load_convert_to_overlimit()
             result_bytes = mod.convert_gia_bytes_to_overlimit(blob)

@@ -26,6 +26,8 @@ def main() -> int:
         ROOT / "primitive_backend.py",
         ROOT / "fill_shaper.py",
         ROOT / "final_shaper.py",
+        ROOT / "lua_export.py",
+        ROOT / "gia_lua.py",
         ROOT / "test_gia_structure.py",
         ROOT / "test_fill_pipeline.py",
         ROOT / "gia",

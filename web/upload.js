@@ -171,10 +171,12 @@
     if (classicToolPage) classicToolPage.hidden = !isClassic;
     if (imageToolTab) imageToolTab.classList.toggle("active", !isClassic);
     if (classicToolTab) classicToolTab.classList.toggle("active", isClassic);
+    if (imageToolTab) imageToolTab.setAttribute("aria-pressed", String(!isClassic));
+    if (classicToolTab) classicToolTab.setAttribute("aria-pressed", String(isClassic));
     if (outlineLink) outlineLink.hidden = isClassic;
     if (topbarSubtitle) {
       topbarSubtitle.textContent = isClassic
-        ? "GIA模式转换"
+        ? "GIA转换"
         : (currentMode === "fill" ? "默认填充模式 · 默认仅圆形" : "装饰物拟合模式 · 使用元件参数生成轮廓");
     }
   }
@@ -577,13 +579,18 @@
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
+  function updateUploadWarning() {
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    const isLarge = file && file.size > 3 * 1024 * 1024;
+    if (uploadWarning) uploadWarning.hidden = isLocalMode() || !isLarge;
+  }
+
   async function attachFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
-    const isLarge = file.size > 3 * 1024 * 1024;
-    if (uploadWarning) uploadWarning.hidden = !isLarge;
     const transfer = new DataTransfer();
     transfer.items.add(file);
     fileInput.files = transfer.files;
+    updateUploadWarning();
 
     if (fileName) fileName.textContent = file.name;
     if (imgSize) imgSize.textContent = formatFileSize(file.size);
@@ -617,6 +624,7 @@
   }
 
   function getClassicDirection() {
+    if ($("dirGiaToLua") && $("dirGiaToLua").checked) return "gia_to_lua";
     return dirClassicToOver && dirClassicToOver.checked ? "classic_to_overlimit" : "overlimit_to_classic";
   }
 
@@ -731,6 +739,7 @@
   function updateEngineUi() {
     const on = isLocalMode();
     localMode = on;
+    updateUploadWarning();
     try { localStorage.setItem("shaper.localMode", on ? "1" : "0"); } catch (error) { /* ignore */ }
 
     if (engineBadge) {
@@ -949,6 +958,22 @@
   }
 
   function updateClassicToolUi() {
+    const isLua = getClassicDirection() === "gia_to_lua";
+    if ($("btnCopyGiaLua")) $("btnCopyGiaLua").hidden = !isLua;
+    if ($("giaLuaCopyStatus")) $("giaLuaCopyStatus").textContent = "";
+    if ($("giaLuaMaskOption")) $("giaLuaMaskOption").hidden = !isLua;
+    if ($("classicModeTips")) $("classicModeTips").hidden = isLua;
+    if (isLua) {
+      if (giaDirectionInput) giaDirectionInput.value = "gia_to_lua";
+      if (classicUploadTitle) classicUploadTitle.textContent = "超限模式图片素材组 GIA";
+      if (classicDropText) classicDropText.innerHTML = "点击或拖拽上传素材组 <strong>.gia</strong>";
+      if (classicHint) classicHint.textContent = "支持单层静态图片素材组，保留键鼠布局、颜色、透明度与层序。文本、嵌套组、动态图片需先转为单层图片；组遮罩可处理裁剪后导出，或勾选下方选项忽略。";
+      if (classicToolTitle) classicToolTitle.textContent = "素材组 GIA 转 Lua 绘制脚本";
+      if (classicToolDesc) classicToolDesc.textContent = "上传超限素材组，下载或复制 Lua。只需一个图片控件模板，脚本自动切换静态图片。";
+      if (classicSteps) classicSteps.innerHTML = "<li>准备一个客户端图片控件，设为「仅存为模板」。</li><li><strong>填写索引：</strong>将脚本 <code>IMAGE_PREFAB_ID = 0</code> 中的 <code>0</code> 改成该控件的<strong>控件模板索引ID</strong>（不是图片资产ID）。只改这一处。</li><li><strong>挂载脚本：</strong>创建专用空客户端容器节点，将下载或复制的 Lua 作为客户端脚本挂到该节点，进入运行预览即可绘制。</li><li>可选：<code>BASE_SCALE</code> 缩放，<code>OFFSET_X/Y</code> 平移。自定义图片需在当前关卡可用。</li>";
+      if (classicGiaButton) classicGiaButton.textContent = "导出 Lua 绘制脚本";
+      return;
+    }
     const isOverToClassic = !dirClassicToOver || !dirClassicToOver.checked;
     if (giaDirectionInput) giaDirectionInput.value = isOverToClassic ? "overlimit_to_classic" : "classic_to_overlimit";
     if (classicUploadTitle) classicUploadTitle.textContent = isOverToClassic ? "超限模式 GIA" : "经典模式 GIA";
@@ -981,6 +1006,7 @@
   if (dirOverToClassic) {
     dirOverToClassic.addEventListener("change", updateClassicToolUi);
   }
+  if ($("dirGiaToLua")) $("dirGiaToLua").addEventListener("change", updateClassicToolUi);
   if (dirClassicToOver) {
     dirClassicToOver.addEventListener("change", updateClassicToolUi);
   }
@@ -1090,6 +1116,8 @@
     classicGiaForm.addEventListener("submit", (event) => {
       event.preventDefault();
       const direction = getClassicDirection();
+      const copyLua = direction === "gia_to_lua" && event.submitter && event.submitter.id === "btnCopyGiaLua";
+      if ($("giaLuaCopyStatus")) $("giaLuaCopyStatus").textContent = "";
       const sourceLabel = direction === "classic_to_overlimit" ? "经典模式" : "超限模式";
       if (!classicGiaInput || !classicGiaInput.files || !classicGiaInput.files[0]) {
         alert(`请先选择${sourceLabel} GIA 文件`);
@@ -1097,6 +1125,7 @@
       }
 
       const originalText = classicGiaButton ? classicGiaButton.textContent : "";
+      if ($("btnCopyGiaLua")) $("btnCopyGiaLua").disabled = true;
       if (classicGiaButton) {
         classicGiaButton.disabled = true;
         classicGiaButton.textContent = "转换中...";
@@ -1113,16 +1142,24 @@
               throw new Error(text || `HTTP ${response.status}`);
             });
           }
-          const defaultSuffix = direction === "classic_to_overlimit" ? "_overlimit.gia" : "_classic.gia";
+          const defaultSuffix = direction === "gia_to_lua" ? ".lua" : direction === "classic_to_overlimit" ? "_overlimit.gia" : "_classic.gia";
           const filename = filenameFromDisposition(
             response.headers.get("Content-Disposition"),
             (classicGiaInput.files[0].name || "gia_mode.gia").replace(/\.gia$/i, defaultSuffix),
           );
           return response.blob().then((blob) => ({ blob, filename }));
         })
-        .then(({ blob, filename }) => saveBlob(blob, filename))
+        .then(async ({ blob, filename }) => {
+          if (copyLua) {
+            await window.ShaperClipboard.copy(await blob.text());
+            if ($("giaLuaCopyStatus")) $("giaLuaCopyStatus").textContent = "Lua 已复制，可粘贴到客户端脚本。";
+          } else {
+            await saveBlob(blob, filename);
+          }
+        })
         .catch((error) => alert(`转换失败: ${error && error.message ? error.message : error}`))
         .finally(() => {
+          if ($("btnCopyGiaLua")) $("btnCopyGiaLua").disabled = false;
           if (classicGiaButton) {
             classicGiaButton.disabled = false;
             classicGiaButton.textContent = originalText || (direction === "classic_to_overlimit" ? "导出超限模式 GIA" : "导出经典模式 GIA");

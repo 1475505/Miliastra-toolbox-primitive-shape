@@ -30,6 +30,8 @@ a = Analysis(
         "shaper_core",
         "fill_shaper",
         "final_shaper",
+        "lua_export",
+        "gia_lua",
         "json_to_gia",
         "convert_to_classic",
         "convert_to_overlimit",
