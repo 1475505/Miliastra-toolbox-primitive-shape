@@ -688,18 +688,31 @@
     return payload.task_id;
   }
 
-  /* 源图补传：二进制 body + 上传进度回调。sync=true 用于 IndexedDB 不可用时的同步回退 */
+  /* 源图补传：二进制 body + 上传进度回调。
+   * 该阶段可容忍失败：超过 UPLOAD_STALL_MS 没有上传进展即中止并抛出超时，
+   * 由调用方跳过（底图仍有 IndexedDB / 白底降级，不影响查看与导出）。 */
+  const UPLOAD_STALL_MS = 30 * 1000;
+
   function uploadSourceImage(taskId, blob, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      let stallTimer = null;
+      const armStallTimer = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => xhr.abort(), UPLOAD_STALL_MS);
+      };
+      const clearStallTimer = () => clearTimeout(stallTimer);
       xhr.open("POST", `/register_image/${encodeURIComponent(taskId)}`);
       xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
       xhr.upload.onprogress = (event) => {
+        // 有进展就续期；上传体发完后不再有进度事件，等响应同样受此超时约束
+        armStallTimer();
         if (event.lengthComputable && onProgress) {
           onProgress(event.loaded, event.total);
         }
       };
       xhr.onload = () => {
+        clearStallTimer();
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve();
         } else {
@@ -711,8 +724,16 @@
           reject(new Error("源图上传失败: " + message));
         }
       };
-      xhr.onerror = () => reject(new Error("源图上传失败：网络错误"));
+      xhr.onerror = () => {
+        clearStallTimer();
+        reject(new Error("源图上传失败：网络错误"));
+      };
+      xhr.onabort = () => {
+        clearStallTimer();
+        reject(new Error("源图上传超时，已跳过"));
+      };
       xhr.send(blob);
+      armStallTimer();
     });
   }
 

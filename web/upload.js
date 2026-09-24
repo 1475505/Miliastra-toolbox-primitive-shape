@@ -865,10 +865,13 @@
       } catch (error) { /* 隐私模式/配额受限，走同步回退 */ }
 
       if (!cached) {
-        // 回退：直接同步补传源图（带进度），完成后再跳转，保证重试可用
-        await window.LocalFit.uploadSourceImage(taskId, sourceBlob, (done, total) => {
-          setLocalProgress(`正在上传原图（${Math.round((done / total) * 100)}%）`, (done / total) * 100);
-        });
+        // 回退：同步补传源图（带进度）。该阶段可容忍失败，超时/出错直接跳过，
+        // 不阻塞进入结果页（底图缺失时结果页白底降级，导出不受影响）
+        try {
+          await window.LocalFit.uploadSourceImage(taskId, sourceBlob, (done, total) => {
+            setLocalProgress(`正在上传原图（${Math.round((done / total) * 100)}%）`, (done / total) * 100);
+          });
+        } catch (error) { /* 跳过源图补传 */ }
       }
       window.location.href = `/result/${taskId}`;
     } catch (error) {
