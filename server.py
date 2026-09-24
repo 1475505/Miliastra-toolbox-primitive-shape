@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import json
 import logging
 import os
@@ -55,6 +56,7 @@ def _compute_web_asset_version():
     asset_paths = [
         os.path.join(WEB_DIR, "style.css"),
         os.path.join(WEB_DIR, "upload.js"),
+        os.path.join(WEB_DIR, "local_fit.js"),
         os.path.join(WEB_DIR, "app.js"),
         os.path.join(WEB_DIR, "clipboard.js"),
     ]
@@ -1085,7 +1087,24 @@ def retry(tid):
 def register_result():
     """寄存本地（WebAssembly）拟合完成的结果，返回 task_id 复用结果页与导出链路。"""
     cleanup()
-    payload = request.get_json(silent=True) or {}
+    raw = request.get_data(cache=False)
+    # 弱网优化：客户端可能用 CompressionStream('gzip') 压缩请求体（JSON 实测可降 5 倍）。
+    # 按 gzip 魔数识别而非请求头，避免中间层改写头部带来的歧义；旧客户端明文照旧可用。
+    if raw[:2] == b"\x1f\x8b":
+        try:
+            raw = gzip.decompress(raw)
+        except Exception:
+            # 截断会抛 EOFError、损坏会抛 OSError/zlib.error，统一按坏请求处理
+            logger.warning("task_register_local 请求体解压失败 compressed_bytes=%d", len(raw))
+            return {"ok": False, "error": "请求体解压失败"}, 400
+    payload = {}
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            payload = parsed
     result_data = payload.get("result")
     if not isinstance(result_data, dict) or not result_data.get("elements"):
         return {"ok": False, "error": "缺少有效结果"}, 400

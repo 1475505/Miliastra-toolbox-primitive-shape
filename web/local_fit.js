@@ -181,12 +181,13 @@
     });
   }
 
-  /* ------- 源图本地缓存（IndexedDB，key = task_id） -------
-   * 寄存只上传 elements/mask（瞬时）；源图存本地，由结果页作底图并在后台补传。
-   * 失败（隐私模式/配额）由调用方回退为同步上传。 */
+  /* ------- 源图 / 蒙版本地缓存（IndexedDB，key = task_id） -------
+   * 寄存只上传 elements；源图作底图、蒙版作叠加预览，都由结果页本地读取。
+   * 失败（隐私模式/配额）由调用方降级：源图回退为同步补传，蒙版则不可叠加。 */
 
   const IDB_NAME = "shaper-local";
   const IDB_STORE = "source_images";
+  const IDB_MASK_STORE = "masks";
   const IDB_MAX_ENTRIES = 5;
 
   function openImageDb() {
@@ -195,11 +196,14 @@
         reject(new Error("IndexedDB 不可用"));
         return;
       }
-      const request = window.indexedDB.open(IDB_NAME, 1);
+      const request = window.indexedDB.open(IDB_NAME, 2);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains(IDB_STORE)) {
           db.createObjectStore(IDB_STORE, { keyPath: "taskId" });
+        }
+        if (!db.objectStoreNames.contains(IDB_MASK_STORE)) {
+          db.createObjectStore(IDB_MASK_STORE, { keyPath: "taskId" });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -234,6 +238,36 @@
     const request = tx.objectStore(IDB_STORE).get(taskId);
     return new Promise((resolve, reject) => {
       request.onsuccess = () => resolve(request.result ? request.result.blob : null);
+      request.onerror = () => reject(request.error || new Error("IndexedDB 读取失败"));
+    });
+  }
+
+  async function idbSaveMask(taskId, base64) {
+    const db = await openImageDb();
+    const tx = db.transaction(IDB_MASK_STORE, "readwrite");
+    tx.objectStore(IDB_MASK_STORE).put({ taskId: taskId, base64: base64, ts: Date.now() });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB 写入失败"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB 写入中断"));
+    });
+    try {
+      const pruneTx = db.transaction(IDB_MASK_STORE, "readwrite");
+      const store = pruneTx.objectStore(IDB_MASK_STORE);
+      const allReq = store.getAll();
+      allReq.onsuccess = () => {
+        const rows = (allReq.result || []).sort((a, b) => b.ts - a.ts);
+        rows.slice(IDB_MAX_ENTRIES).forEach((row) => store.delete(row.taskId));
+      };
+    } catch (error) { /* 清理失败不影响主流程 */ }
+  }
+
+  async function idbLoadMask(taskId) {
+    const db = await openImageDb();
+    const tx = db.transaction(IDB_MASK_STORE, "readonly");
+    const request = tx.objectStore(IDB_MASK_STORE).get(taskId);
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result ? request.result.base64 : null);
       request.onerror = () => reject(request.error || new Error("IndexedDB 读取失败"));
     });
   }
@@ -593,8 +627,9 @@
       rescaleResult(result, outW, outH);
     }
 
-    // 寄存请求体去重（减少上传量、避免超过服务端上限）：
-    //   image_base64  与顶层 sourceImageBase64 同图 → 不在此编码，由服务端注入源图
+    // 寄存请求体去重（减少上传量）：
+    //   image_base64   与源图同图 → 由上传页存 IndexedDB 作底图
+    //   mask_base64    只服务结果页的叠加预览（服务端与导出都不用）→ 同样走本地缓存
     //   preview_base64 结果页可用 canvas 自渲染回退 → 置空
     result.image_base64 = null;
     result.preview_base64 = null;
@@ -603,10 +638,12 @@
       const maskImage = await base64ToImage(result.mask_base64);
       result.mask_base64 = await canvasToPngBase64(maskImage, outW, outH, "#000000");
     }
+    const maskBase64 = result.mask_base64;
+    result.mask_base64 = null;
 
     result.elapsed_seconds = Math.round(((performance.now() - startedAt) / 1000) * 100) / 100;
-    // 源图以 Blob 返回：寄存请求不携带（瘦身），由上传页存 IndexedDB、结果页后台补传
-    return { result, sourceBlob: file };
+    // 源图以 Blob、蒙版以 base64 单独返回：寄存请求都不携带，由上传页存 IndexedDB
+    return { result, sourceBlob: file, maskBase64: maskBase64 };
   }
 
   /* 单实例一次性拟合（兜底路径） */
@@ -667,25 +704,58 @@
     return finishData.json;
   }
 
-  /* ------- 寄存结果（仅 elements/mask，瞬时）与源图补传 ------- */
+  /* ------- 寄存结果（仅 elements）与源图/蒙版本地缓存 ------- */
 
-  async function registerResult(result, config, imageName) {
-    const response = await fetch("/register_result", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+  /* 弱网优化：用 CompressionStream('gzip') 压缩寄存请求体（JSON 实测可降约 5 倍）。
+   * 不支持时返回 null，调用方发明文；服务端按 gzip 魔数识别。 */
+  async function gzipJson(text) {
+    if (typeof CompressionStream === "undefined") return null;
+    try {
+      const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /* 用 XHR 而非 fetch：需要上传进度（弱网下请求体传输是寄存的主要耗时）。
+   * onProgress(loaded, total) 供上游显示百分比与预估剩余时间。 */
+  function registerResult(result, config, imageName, onProgress) {
+    return (async () => {
+      const text = JSON.stringify({
         result: result,
         config: config,
         image_name: imageName,
-      }),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error("结果寄存失败: " + (text || ("HTTP " + response.status)));
-    }
-    const payload = await response.json();
-    if (!payload.ok) throw new Error(payload.error || "结果寄存失败");
-    return payload.task_id;
+      });
+      const compressed = await gzipJson(text);
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/register_result");
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.upload.onprogress = (event) => {
+          if (onProgress && event.lengthComputable) onProgress(event.loaded, event.total);
+        };
+        xhr.onload = () => {
+          let payload = null;
+          try {
+            payload = JSON.parse(xhr.responseText || "{}");
+          } catch (error) { /* 非 JSON 响应（如反代错误页），走下面的兜底信息 */ }
+          if (xhr.status < 200 || xhr.status >= 300) {
+            const message = (payload && payload.error) || xhr.responseText || ("HTTP " + xhr.status);
+            reject(new Error("结果寄存失败: " + message));
+            return;
+          }
+          if (!payload || !payload.ok) {
+            reject(new Error((payload && payload.error) || "结果寄存失败"));
+            return;
+          }
+          resolve(payload.task_id);
+        };
+        xhr.onerror = () => reject(new Error("结果寄存失败：网络错误"));
+        xhr.onabort = () => reject(new Error("结果寄存失败：请求已中断"));
+        xhr.send(compressed || text);
+      });
+    })();
   }
 
   /* 源图补传：二进制 body + 上传进度回调。
@@ -747,5 +817,7 @@
     uploadSourceImage,
     idbSaveSourceImage,
     idbLoadSourceImage,
+    idbSaveMask,
+    idbLoadMask,
   };
 })();

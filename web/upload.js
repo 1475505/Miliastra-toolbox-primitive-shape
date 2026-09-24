@@ -825,6 +825,20 @@
     if (localProgressFill) localProgressFill.style.width = clamped + "%";
   }
 
+  /* 寄存阶段的进度文案：真实百分比 + 按当前速率外推的剩余时间（弱网下这段是主要耗时） */
+  function registerProgress(loaded, total, startedAt) {
+    const ratio = total > 0 ? loaded / total : 0;
+    const elapsed = performance.now() - startedAt;
+    let eta = "";
+    if (loaded > 0 && loaded < total && elapsed > 300) {
+      const remain = Math.max(1, Math.round((total - loaded) / (loaded / elapsed) / 1000));
+      eta = remain >= 60
+        ? `（约 ${Math.floor(remain / 60)} 分 ${remain % 60} 秒）`
+        : `（约 ${remain} 秒）`;
+    }
+    setLocalProgress(`正在寄存结果… ${Math.round(ratio * 100)}%${eta}`, ratio * 100);
+  }
+
   /* 本地模式 · 单图：WASM 拟合 → 寄存 → 跳结果页 */
   async function processSingleLocal() {
     if (processing) return;
@@ -848,13 +862,16 @@
 
     try {
       setLocalProgress("本地引擎准备中…", 0);
-      const { result, sourceBlob } = await window.LocalFit.fitOne(file, config, (done, total) => {
+      const { result, sourceBlob, maskBase64 } = await window.LocalFit.fitOne(file, config, (done, total) => {
         setLocalProgress(`正在拟合（${done}/${total} 图元）`, (done / total) * 100);
       });
-      // 寄存只传 elements/mask（<1MB，瞬时）；源图不随请求上传
-      setLocalProgress("正在寄存结果…", 100);
+      // 寄存只传 elements（弱网下自动 gzip），源图与蒙版都走本地缓存
+      const registerStartedAt = performance.now();
       const taskId = await window.LocalFit.registerResult(
-        result, config, file.name.replace(/\.[a-z0-9]+$/i, "")
+        result,
+        config,
+        file.name.replace(/\.[a-z0-9]+$/i, ""),
+        (loaded, total) => registerProgress(loaded, total, registerStartedAt)
       );
 
       // 源图存 IndexedDB：结果页立即可用作底图，并在后台补传服务端
@@ -867,11 +884,19 @@
       if (!cached) {
         // 回退：同步补传源图（带进度）。该阶段可容忍失败，超时/出错直接跳过，
         // 不阻塞进入结果页（底图缺失时结果页白底降级，导出不受影响）
+        setLocalProgress("正在上传原图…", 0);
         try {
           await window.LocalFit.uploadSourceImage(taskId, sourceBlob, (done, total) => {
             setLocalProgress(`正在上传原图（${Math.round((done / total) * 100)}%）`, (done / total) * 100);
           });
         } catch (error) { /* 跳过源图补传 */ }
+      }
+
+      // 蒙版存 IndexedDB：寄存请求不再携带，结果页本地读取作叠加预览
+      if (maskBase64) {
+        try {
+          await window.LocalFit.idbSaveMask(taskId, maskBase64);
+        } catch (error) { /* 蒙版叠加预览降级为不可用，不影响查看与导出 */ }
       }
       window.location.href = `/result/${taskId}`;
     } catch (error) {

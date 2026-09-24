@@ -133,6 +133,17 @@
     return null;
   }
 
+  /* 蒙版：本地任务不随寄存请求上传，按 task_id 从 IndexedDB 取；云端任务仍用内嵌 base64 */
+  async function resolveMaskBase64() {
+    if (data.mask_base64) return data.mask_base64;
+    if (isLocalTask && window.LocalFit) {
+      try {
+        return await window.LocalFit.idbLoadMask(TASK_ID);
+      } catch (error) { /* 本地缓存不可用，降级为无蒙版叠加 */ }
+    }
+    return null;
+  }
+
   /* 本地任务重试门控：源图未补传到服务端前，/retry 无法在服务端重跑 */
   function setRetryGate(disabled, text) {
     ["retrySectionFill", "retrySectionOutline"].forEach((id) => {
@@ -632,7 +643,7 @@
     if ($("modeLabel")) $("modeLabel").textContent = modeText;
     if ($("statMode")) $("statMode").textContent = modeText;
     if ($("showMask") && $("showMask").parentElement) {
-      const hasMask = Boolean(data.mask_base64);
+      const hasMask = Boolean(assets.mask);
       if (!hasMask) $("showMask").checked = false;
       $("showMask").disabled = !hasMask;
       $("showMask").parentElement.style.opacity = hasMask ? "1" : "0.45";
@@ -647,12 +658,14 @@
     applyVariantUi();
     clearDetail();
 
-    const [base, mask] = await Promise.all([
+    const [base, maskBase64] = await Promise.all([
       resolveBaseImage(),
-      loadImage(data.mask_base64),
+      resolveMaskBase64(),
     ]);
     assets.base = base ? base.image : null;
-    assets.mask = mask;
+    assets.mask = await loadImage(maskBase64);
+    // 蒙版就绪后再定「显示蒙版」开关的可用状态（首次调用时蒙版尚未取到）
+    applyVariantUi();
 
     // 原图缩略图：内嵌 base64 / 服务端 URL / 本地 objectURL 三种来源
     const thumbSrc = data.image_base64
