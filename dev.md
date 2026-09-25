@@ -8,11 +8,15 @@
 
 ```
 Shaper/
-├── server.py              # Flask Web 服务器 + 前端 HTML 模板
-├── shaper_core.py        # 图片处理核心 API
-├── final_shaper.py       # 底层算法实现 (路径行走、拟合)
+├── server.py             # Flask Web 服务器 + 前端 HTML 模板
+├── shaper_core.py        # 图片处理核心 API（填充 + 轮廓）
+├── fill_shaper.py        # 填充模式引擎（随机优化拟合）
+├── final_shaper.py       # 轮廓模式引擎 (路径行走、拟合)
+├── lua_export.py         # 拟合结果 → Lua 客户端绘制脚本
+├── gia_lua.py            # 素材组 GIA → Lua 客户端绘制脚本
 ├── web/
 │   ├── upload.js         # 上传页面前端逻辑
+│   ├── local_fit.js      # 本地模式（WASM）客户端
 │   ├── app.js           # 结果页面交互逻辑
 │   ├── style.css        # 全局样式
 │   └── (无独立 HTML 文件，嵌入 server.py)
@@ -33,12 +37,14 @@ server.py (Flask)
 shaper_core.process_image()
     │
     ├── 提取 Mask / 距离场 (OpenCV)
-    ├── 图元拟合 (final_shaper.py)
+    ├── 图元拟合 (fill_shaper.py / final_shaper.py)
     └── 返回 JSON (elements + image_base64)
     │
     ▼
-结果页 (app.js) / GIA 导出 (json_to_gia.py)
+结果页 (app.js) / GIA 导出 (json_to_gia.py) / Lua 导出 (lua_export.py)
 ```
+
+素材组 GIA 还有一条独立通路：上传页「GIA模式转换」选 `gia_to_lua` → `gia_lua.build_gia_lua()` → Lua 绘制脚本；超限 ↔ 经典互转只改文件头模式字段。
 
 ---
 
@@ -53,6 +59,9 @@ shaper_core.process_image()
 | 图片处理入口 | shaper_core.py | `process_image()` (~行14) |
 | 图元类型过滤 | shaper_core.py | ~行69-86 (`allowed_types`) |
 | 核心拟合算法 | final_shaper.py | `fit_beads()` (~行350) |
+| 填充模式拟合 | fill_shaper.py | `fit_primitives()` (~行548) |
+| Lua 导出（拟合结果） | lua_export.py | `build_lua_export_text()` (~行298) |
+| Lua 导出（素材组 GIA） | gia_lua.py | `build_gia_lua()` (~行203) |
 | GIA 生成 | json_to_gia.py | `convert_json_to_gia_bytes()` (~行404) |
 | GIA 旋转处理 | json_to_gia.py | `create_decoration_payload()` (~行295) |
 

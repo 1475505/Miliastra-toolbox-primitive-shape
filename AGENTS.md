@@ -1,6 +1,6 @@
 # 千星奇域图片拟合工具 (Shaper)
 
-图片拟合工具，用基础图元（椭圆/矩形/三角形）沿轮廓或填充区域来拟合图片，导出为 SVG/PNG/CSS/GIA 格式。
+图片拟合工具，用基础图元（椭圆/矩形/三角形）沿轮廓或填充区域来拟合图片，导出为 GIA（超限/经典）、Lua 客户端绘制脚本、JSON/CSS/SVG/PNG。
 
 ## 目录结构
 
@@ -10,6 +10,8 @@
 ├── fill_shaper.py            # 填充模式引擎 — 随机优化拟合（蒙版/软权重）
 ├── final_shaper.py           # 轮廓模式引擎 — 路径行走拟合（V6）
 ├── primitive_backend.py      # Go primitive 后端封装（保留兼容）
+├── lua_export.py             # 拟合结果 → 客户端 Lua 绘制脚本（PALETTE/ELEMENTS 版式，含使用说明头）
+├── gia_lua.py                # 素材组 GIA → 客户端 Lua 绘制脚本（ROOT/ELEMENTS 版式）
 ├── build_pyc.py              # 编译 .pyc 脚本（将 .py 编译部署用）
 ├── requirements.txt          # Python 依赖
 ├── Dockerfile                # Docker 部署
@@ -72,6 +74,18 @@
 | 轮廓 (Outline) | `final_shaper.py` | 路径行走（沿轮廓排列）      | 椭圆、矩形        |
 | 填充 (Fill)    | `fill_shaper.py`  | 随机优化 + 爬山（区域内分布） | 圆形、椭圆、矩形、三角形 |
 
+## 导出格式
+
+| 导出                      | 入口                                       | 说明                                    |
+| ----------------------- | ---------------------------------------- | ------------------------------------- |
+| GIA（超限 / 经典）           | 结果页按钮 / CLI `--export gia --gia-mode`   | 素材组资产，`json_to_gia.pyc` 生成             |
+| Lua 客户端绘制脚本            | 结果页按钮 / CLI `--export lua`              | `lua_export.py` 生成，见下                     |
+| JSON / CSS / SVG / PNG  | 结果页按钮                                    | JSON、CSS 可复制；供继续编辑或存档预览               |
+| 素材组 GIA → Lua          | 上传页「GIA模式转换」选 `gia_to_lua`            | `gia_lua.py` 生成，保留素材组图片资产与布局          |
+| GIA 超限 ↔ 经典            | 上传页「GIA模式转换」                            | 仅改文件头模式字段                             |
+
+Lua 导出复用同一套客户端运行时：每个图元实例化一个图片控件，矩形/圆形/三角形对应静态图片 `100001`/`100002`/`100003`。脚本头部自带使用说明（`IMAGE_PREFAB_ID` 必填为「仅存为模板」图片控件的**控件模板索引 ID**，非图片资产 ID；挂到专用空客户端容器节点，`OnStart` 绘制，勿移到 `OnInit`，`OnDestroy` 自动清理）。
+
 ## 路由架构
 
 | 路由                      | 说明                               |
@@ -79,8 +93,14 @@
 | `GET /`                 | 上传页（三栏布局）                        |
 | `POST /submit`          | 提交处理，302 → 状态页                   |
 | `POST /register_result` | 寄存本地（WASM）拟合结果，返回 task\_id 复用结果页 |
+| `POST /register_image/<tid>` | 源图补传（best-effort，失败可忽略）          |
+| `GET /task_image/<tid>` | 取任务源图（结果页底图预览）                   |
 | `GET /status/<tid>`     | 轮询处理状态                           |
 | `GET /result/<tid>`     | 结果页（Canvas 渲染 + 导出）              |
+| `POST /retry/<tid>`     | 结果页改参重跑                          |
+| `GET /download_overlimit_gia/<tid>` / `GET /download_classic_gia/<tid>` | 导出 GIA |
+| `GET /download_lua/<tid>` | 导出 Lua 客户端绘制脚本                    |
+| `POST /convert_gia_mode` | GIA 超限↔经典互转 / 素材组 GIA → Lua      |
 
 ## 本地模式（WebAssembly）
 
@@ -103,4 +123,5 @@
 3. 预设配置（图元 ID、尺寸等）定义在 `web/upload.js` 的 `PRESETS` 常量中
 4. 服务默认端口 5555
 5. Go primitive 可执行文件需放在 `tools/` 下，缺失时处理会失败
+6. Lua 导出是纯 Python 实现，不依赖 `.pyc`：`lua_export.py` 从拟合结果生成 `PALETTE/ELEMENTS` 版式，`gia_lua.py` 从素材组 GIA 生成 `ROOT/ELEMENTS` 版式；两者共用同一份客户端运行时与脚本头部的使用说明，改动任一处需保持说明一致
 

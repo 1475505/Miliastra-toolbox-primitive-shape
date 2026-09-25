@@ -320,11 +320,15 @@ V6 改为 `min(长轴, 短轴 × 2.5)`，同一个椭圆步长约 22px，不再�
 ├── fill_shaper.py          # 填充模式引擎（随机优化拟合）
 ├── final_shaper.py         # 轮廓模式引擎（路径行走拟合）
 ├── primitive_backend.py    # Go primitive 后端（保留兼容）
+├── lua_export.py           # 拟合结果 → Lua 客户端绘制脚本（PALETTE/ELEMENTS）
+├── gia_lua.py              # 素材组 GIA → Lua 客户端绘制脚本（ROOT/ELEMENTS）
 ├── build_pyc.py            # 编译 .pyc 脚本
 ├── web/
 │   ├── upload.js           # 上传页面前端逻辑
+│   ├── local_fit.js        # 本地模式（WASM）客户端
 │   ├── app.js              # 结果页面交互逻辑
-│   └── style.css            # 全局样式
+│   ├── style.css            # 全局样式
+│   └── wasm/               # WASM 产物、Go JS 桥、拟合 Worker
 ├── gia/
 │   ├── json_to_gia.py      # JSON → GIA 文件转换
 │   ├── convert_to_classic.py   # 超限模式 GIA → 经典模式 GIA
@@ -454,6 +458,21 @@ V2 的核心改进是引入了**软权重**机制：
 - 预设包含 `type_id`、`element_type_id`、`rot_z`、`rot_y_add`、`name` 等参数
 - 导出时自动将图元类型映射到 GIA 元件格式
 - 支持 `image_asset_ref` 资源 ID 传递
+
+---
+
+## Lua 导出（客户端绘制脚本）
+
+把拟合结果或已有素材组转成可直接挂进游戏的客户端脚本，两条通路共用同一份客户端运行时（`OnStart` 绘制、`OnDestroy` 清理、重复进入先清理再重建）：
+
+| 源 | 生成器 | 版式 | 写入内容 |
+|------|--------|------|----------|
+| 拟合结果 | `lua_export.py` | `PALETTE` + `ELEMENTS`（8 字段） | 调色板去重后写 `{kind, cx, cy, w, h, rotZ, colorIndex, alpha}`；矩形 / 圆形 / 三角形对应静态图片 `100001` / `100002` / `100003` |
+| 素材组 GIA | `gia_lua.py` | `ROOT` + `ELEMENTS`（18 字段） | 逐图片资产写 18 字段（图片资产、位置、尺寸、pivot、anchor、scale、rotZ、RGBA），保留素材组布局 |
+
+坐标约定：以原图左下角为原点，X 向右、Y 向上，单位为原图像素，运行时再乘 `BASE_SCALE` 或画布自适应缩放。三角形轴心取质心 `(0.5, 1/3)`，其余形状取中心。
+
+脚本头部自带使用说明：`IMAGE_PREFAB_ID` 必填为「仅存为模板」图片控件的**控件模板索引 ID**（不是图片资产 ID），脚本挂到专用空客户端容器节点后在 `OnStart` 绘制；每个图元实例化一个控件，控件容量与真机显示需在运行预览和真机确认。
 
 ---
 
