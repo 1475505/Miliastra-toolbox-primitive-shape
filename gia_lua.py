@@ -116,12 +116,15 @@ def _transform(components):
     rect = _message(keyboard, 502)
     scale = _vector(rect, 501, (1, 2, 3), (1, 1, 1))
     rotation = _vector(rect, 508, (1, 2, 3), (0, 0, 0))
-    if rotation[0] or rotation[1]:
-        raise ValueError("暂不支持含 X/Y 轴旋转的素材，请先转为平面图片")
     # 保留轴心、锚点、缩放（含镜像），不重新拟合或按形状猜测轴心。
+    # X/Y 轴旋转仅在非零时追加到行尾，保持前 13 项下标不变。
     return (_vector(rect, 504) + _vector(rect, 505)
             + _vector(rect, 506) + _vector(rect, 502) + _vector(rect, 503)
-            + scale[:2] + [rotation[2]])
+            + scale[:2] + [rotation[2]]), rotation[:2]
+
+
+def _with_rot_xy(row, rot_xy):
+    return row + rot_xy if rot_xy[0] or rot_xy[1] else row
 
 
 def parse_material_gia(data, ignore_mask=False):
@@ -153,7 +156,8 @@ def parse_material_gia(data, ignore_mask=False):
     has_mask = bool(_get(mask, 4))
     if has_mask and not ignore_mask:
         raise ValueError("素材组启用了遮罩/裁剪。当前不能等价转换组遮罩；可勾选「忽略组遮罩」绘制全部图片，或在素材组编辑器处理裁剪后重试")
-    root_transform = _transform(components) if (12 in components or 11 in components) else None
+    root_transform = (_with_rot_xy(*_transform(components))
+                      if (12 in components or 11 in components) else None)
     children = _children(root_content)
     if not children:
         raise ValueError("素材组没有图片控件")
@@ -178,7 +182,8 @@ def parse_material_gia(data, ignore_mask=False):
             raise ValueError(f"控件 {guid} 使用动态图片引用，暂不支持")
         color = _get(image, 4) & 0xffffffff
         rgba = [(color >> shift) & 255 for shift in (16, 8, 0, 24)]
-        records.append([asset] + _transform(parts) + rgba)
+        transform, rot_xy = _transform(parts)
+        records.append(_with_rot_xy([asset] + transform + rgba, rot_xy))
     if not records:
         raise ValueError("素材组没有可读取的图片实体，子控件引用全部缺失")
     if root_transform is None:
@@ -212,10 +217,10 @@ def build_gia_lua(data, name="素材组", ignore_mask=False):
              "-- 3. 挂载：创建专用空客户端容器节点，将本文件作为客户端脚本挂到该节点。",
              "--    进入运行预览即绘制（OnStart）。脚本会设置该节点尺寸，请不要挂在已有界面的根节点上。",
              "-- 可选：BASE_SCALE 缩放；OFFSET_X/Y 平移（Y向上）。自定义图片需在当前关卡可用。",
-             "-- 保留键鼠布局；不转换嵌套组、文本、动态引用及组遮罩。",
+             "-- 保留键鼠布局（含 X/Y 轴旋转）；不转换嵌套组、文本、动态引用及组遮罩。",
              "", "local IMAGE_PREFAB_ID = 0 -- 必填：客户端图片控件模板索引ID",
              "local BASE_SCALE = 1", "local OFFSET_X = 0", "local OFFSET_Y = 0",
-              "-- 数据顺序：图片资产,x,y,w,h,pivotX,pivotY,anchorMinX,anchorMinY,anchorMaxX,anchorMaxY,scaleX,scaleY,rotZ,r,g,b,a",
+              "-- 数据顺序：图片资产,x,y,w,h,pivotX,pivotY,anchorMinX,anchorMinY,anchorMaxX,anchorMaxY,scaleX,scaleY,rotZ,r,g,b,a[,rotX,rotY]",
               "local ROOT = {" + ','.join(map(repr, scene['root_transform'])) + "}", "local ELEMENTS = {"]
     lines += ["    {" + ','.join(map(repr, row)) + "}," for row in records]
     lines += ["}", _RUNTIME]
@@ -248,7 +253,7 @@ function OnStart()
     parent:SetPivot(ROOT[5], ROOT[6])
     parent:SetSizeDelta(ROOT[3], ROOT[4])
     parent:SetLocalScale(ROOT[11] * BASE_SCALE, ROOT[12] * BASE_SCALE, 1)
-    parent:SetLocalRotation(0, 0, ROOT[13])
+    parent:SetLocalRotation(ROOT[14] or 0, ROOT[15] or 0, ROOT[13])
     parent:SetAnchoredPosition(OFFSET_X, OFFSET_Y)
     local ok, err = pcall(function()
         for _, item in ipairs(ELEMENTS) do
@@ -263,7 +268,7 @@ function OnStart()
             image:SetPivot(item[6], item[7])
             image:SetSizeDelta(item[4], item[5])
             image:SetLocalScale(item[12], item[13], 1)
-            image:SetLocalRotation(0, 0, item[14])
+            image:SetLocalRotation(item[19] or 0, item[20] or 0, item[14])
             image:SetAnchoredPosition(item[2], item[3])
             image.imageColor = Color.FromRGBA(item[15], item[16], item[17], item[18])
             image:SetAsLastSibling()

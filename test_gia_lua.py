@@ -26,7 +26,7 @@ def vec(x, y, start=501):
     return field(start, float(x)) + field(start+1, float(y))
 
 
-def fixture(*, packed=False, classic=False, mask=False, missing=False, image=True):
+def fixture(*, packed=False, classic=False, mask=False, missing=False, image=True, rot_xy=None):
     children = [2, 3] + ([999] if missing else [])
     refs = field(503, b''.join(vi(x) for x in children)) if packed else b''.join(field(503,x) for x in children)
     root_content = field(501,1) + refs
@@ -37,7 +37,8 @@ def fixture(*, packed=False, classic=False, mask=False, missing=False, image=Tru
     for guid, asset, color in [(2,100003,0x80123456),(3,100001,0xffabcdef)]:
         transform = (field(501,vec(-2,3,1)+field(3,1.0)) + field(502,vec(.5,.5))
                      + field(503,vec(.5,.5)) + field(504,vec(guid*10,-20))
-                     + field(505,vec(40,60)) + field(506,vec(.25,1/3)) + field(508,field(3,30.0)))
+                     + field(505,vec(40,60)) + field(506,vec(.25,1/3))
+                     + field(508,(vec(*rot_xy,1) if rot_xy else b'')+field(3,30.0)))
         platform = field(501,field(502,transform))
         component = field(502,12)+field(503,field(13,field(12,platform)))
         content = field(501,guid)+field(504,1)+field(505,component)
@@ -57,6 +58,13 @@ class GiaLuaTests(unittest.TestCase):
         self.assertEqual(row[1:6],[20,-20,40,60,.25])
         self.assertAlmostEqual(row[6],1/3,places=6)
         self.assertEqual(row[11:],[ -2,3,30,0x12,0x34,0x56,0x80])
+
+    def test_xy_rotation_is_kept(self):
+        records = gia_lua.parse_material_gia(fixture(rot_xy=(10,20)))['records']
+        self.assertEqual(records[1][14:],[0x12,0x34,0x56,0x80,10,20])
+        text = gia_lua.build_gia_lua(fixture(rot_xy=(10,20)))
+        self.assertIn('SetLocalRotation(item[19] or 0, item[20] or 0, item[14])',text)
+        self.assertIn(',10.0,20.0},',text)
 
     def test_packed_children_matches_unpacked(self):
         self.assertEqual(gia_lua.parse_material_gia(fixture(packed=True)),gia_lua.parse_material_gia(fixture()))

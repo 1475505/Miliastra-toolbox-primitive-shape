@@ -10,7 +10,8 @@
     - 以原图左下角为原点，X 向右、Y 向上（与千星 UI 画布一致）；
     - 单位为原图像素；运行时再乘以 BASE_SCALE / 自适应缩放；
     - 旋转角直接沿用元素 rotation.z（工具链已换算为 Y 轴向上约定，
-      在 Unity 风格 UI 中绕 Z 正值即逆时针，无需再次取负）。
+      在 Unity 风格 UI 中绕 Z 正值即逆时针，无需再次取负）；
+      rotation.x / rotation.y 非零时原样追加到记录末尾。
 """
 
 import math
@@ -72,12 +73,13 @@ local PALETTE = {{
 {palette_body}
 }}
 
--- 图元记录: {{kind, cx, cy, w, h, rotZ, colorIndex, alpha}}
+-- 图元记录: {{kind, cx, cy, w, h, rotZ, colorIndex, alpha[, rotX, rotY]}}
 --   kind: 0=矩形 1=椭圆(圆拉伸) 2=三角形
 --   cx,cy: 图元中心，原图像素坐标，左下角原点、Y 向上
 --   w,h:   矩形/三角形为宽高；椭圆为直径(2*rx, 2*ry)
 --   rotZ:  旋转角(度)，绕各自身心；三角形轴心在其质心(0.5, 1/3)
 --   colorIndex: PALETTE 下标;  alpha: 0-255
+--   rotX,rotY: 可选，绕 X/Y 轴旋转角(度)，缺省为 0
 local ELEMENTS = {{
 {elements_body}
 }}
@@ -140,9 +142,11 @@ local function DrawElement(parent, item, scale)
 
     image:SetSizeDelta(item[4] * scale, item[5] * scale)
 
+    local rotX = item[9] or 0
+    local rotY = item[10] or 0
     local rotZ = item[6] + ROTATION_BIAS
-    if rotZ ~= 0 then
-        image:SetLocalRotation(0, 0, rotZ)
+    if rotX ~= 0 or rotY ~= 0 or rotZ ~= 0 then
+        image:SetLocalRotation(rotX, rotY, rotZ)
     end
 
     local px = (item[2] - IMG_WIDTH / 2) * scale + OFFSET_X
@@ -237,17 +241,18 @@ def _alpha_to_255(element):
     return int(round(alpha * 255))
 
 
-def _rotation_z(element):
+def _rotation_xyz(element):
+    """返回 (x, y, z) 旋转角(度)；标量 rotation 视为绕 Z。"""
     rotation = element.get("rotation", 0)
-    if isinstance(rotation, dict):
+    if not isinstance(rotation, dict):
+        rotation = {"z": rotation}
+    result = []
+    for axis in ("x", "y", "z"):
         try:
-            return float(rotation.get("z") or 0.0)
+            result.append(float(rotation.get(axis) or 0.0))
         except (TypeError, ValueError):
-            return 0.0
-    try:
-        return float(rotation or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
+            result.append(0.0)
+    return tuple(result)
 
 
 def _element_geometry(element, kind):
@@ -343,7 +348,7 @@ def build_lua_export_text(result_data, image_name=""):
         rgb = _color_to_rgb(element)
         color_index = palette.index_for(rgb)
         alpha255 = _alpha_to_255(element)
-        rot_z = round(_rotation_z(element), 2)
+        rot_x, rot_y, rot_z = (round(value, 2) for value in _rotation_xyz(element))
 
         record = {
             "kind": kind,
@@ -352,6 +357,8 @@ def build_lua_export_text(result_data, image_name=""):
             "w": round(w, 2),
             "h": round(h, 2),
             "rot_z": rot_z,
+            "rot_x": rot_x,
+            "rot_y": rot_y,
             "color_index": color_index,
             "alpha": alpha255,
             "is_background": bool(element.get("is_background")),
@@ -376,11 +383,10 @@ def build_lua_export_text(result_data, image_name=""):
         if "__comment__" in record:
             element_lines.append(f"    -- {record['__comment__']}")
             continue
-        element_lines.append(
-            "    {{{kind}, {cx}, {cy}, {w}, {h}, {rot_z}, {color_index}, {alpha}}},".format(
-                **record
-            )
-        )
+        fields = "{kind}, {cx}, {cy}, {w}, {h}, {rot_z}, {color_index}, {alpha}"
+        if record["rot_x"] or record["rot_y"]:
+            fields += ", {rot_x}, {rot_y}"
+        element_lines.append("    {" + fields.format(**record) + "},")
 
     header = _HEADER_TEMPLATE.format(
         name=safe_name,

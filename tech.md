@@ -467,8 +467,8 @@ V2 的核心改进是引入了**软权重**机制：
 
 | 源 | 生成器 | 版式 | 写入内容 |
 |------|--------|------|----------|
-| 拟合结果 | `lua_export.py` | `PALETTE` + `ELEMENTS`（8 字段） | 调色板去重后写 `{kind, cx, cy, w, h, rotZ, colorIndex, alpha}`；矩形 / 圆形 / 三角形对应静态图片 `100001` / `100002` / `100003` |
-| 素材组 GIA | `gia_lua.py` | `ROOT` + `ELEMENTS`（18 字段） | 逐图片资产写 18 字段（图片资产、位置、尺寸、pivot、anchor、scale、rotZ、RGBA），保留素材组布局 |
+| 拟合结果 | `lua_export.py` | `PALETTE` + `ELEMENTS`（8 字段） | 调色板去重后写 `{kind, cx, cy, w, h, rotZ, colorIndex, alpha[, rotX, rotY]}`（X/Y 旋转非零时追加）；矩形 / 圆形 / 三角形对应静态图片 `100001` / `100002` / `100003` |
+| 素材组 GIA | `gia_lua.py` | `ROOT` + `ELEMENTS`（18 字段） | 逐图片资产写 18 字段（图片资产、位置、尺寸、pivot、anchor、scale、rotZ、RGBA），X/Y 旋转非零时追加 `rotX, rotY`，保留素材组布局 |
 
 坐标约定：以原图左下角为原点，X 向右、Y 向上，单位为原图像素，运行时再乘 `BASE_SCALE` 或画布自适应缩放。三角形轴心取质心 `(0.5, 1/3)`，其余形状取中心。
 
