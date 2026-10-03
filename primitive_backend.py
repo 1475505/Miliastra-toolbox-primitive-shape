@@ -14,7 +14,6 @@ import cv2
 import numpy as np
 
 import fill_shaper
-import final_shaper as fs
 
 
 logger = logging.getLogger(__name__)
@@ -164,7 +163,7 @@ def _prepare_transparent_target(image):
 def _extract_image_and_mask(image, mask_threshold, use_alpha_target=False):
     if image.ndim == 2:
         target_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        mask = fs.extract_mask(target_image) > 0
+        mask = fill_shaper.extract_mask(target_image) > 0
     elif image.shape[2] == 4:
         alpha = image[:, :, 3].astype(np.float32) / 255.0
         flattened = image[:, :, :3].astype(np.float32)
@@ -174,7 +173,7 @@ def _extract_image_and_mask(image, mask_threshold, use_alpha_target=False):
         mask = image[:, :, 3] >= mask_threshold
     else:
         target_image = image[:, :, :3].copy()
-        mask = fs.extract_mask(target_image) > 0
+        mask = fill_shaper.extract_mask(target_image) > 0
     image_rgba = _ensure_bgra(image if image.ndim == 3 and image.shape[2] == 4 else target_image)
     return target_image, _clean_mask(mask), image_rgba
 

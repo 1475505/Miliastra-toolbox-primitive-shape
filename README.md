@@ -6,12 +6,6 @@
 
 参考B站教程 [https://www.bilibili.com/video/BV1kKDyB9EvY](https://www.bilibili.com/video/BV1kKDyB9EvY)
 
-## 装饰物拟合
-
-![](demo/image2.png)
-
-该功能为本仓库之前的代码，现在修坏了，目前在 [https://qx-shaper.up.railway.app/](https://qx-shaper.up.railway.app/) 部署了可用的[历史commit](https://github.com/1475505/Miliastra-toolbox-primitive-shape/tree/b8045325a71a6b99fa07db8bd721d2ae289fcdec) 版本。
-
 
 > 本项目代码完全由 AI 生成。
 
@@ -24,8 +18,7 @@
 ## 功能概览
 
 - **图片素材组拟合（填充模式）**：用椭圆、矩形、三角形在区域内随机优化拟合，适合立绘、图标、场景图。
-- **装饰物拟合（轮廓模式）**：沿轮廓路径行走排列椭圆、矩形，适合描边与装饰线条。
-- **本地模式**：在上传页开启后，拟合在浏览器内用 WebAssembly 完成，图片不上传服务端；仅支持填充模式、单图处理。
+- **本地模式**：在上传页开启后，拟合在浏览器内用 WebAssembly 完成，图片不上传服务端；跨设备/浏览器均可用。
 - **导出**：素材组资产（超限 / 经典模式 GIA）、客户端脚本（Lua）、可继续编辑的数据（JSON / CSS / SVG / PNG）。
 - **GIA 工具**：超限 ↔ 经典模式互转，以及素材组 GIA 转 Lua 绘制脚本。
 

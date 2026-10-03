@@ -1,23 +1,19 @@
 """
 Core image processing entry points for the web app.
 
-Fill mode is the primary workflow and uses the new mask-aware primitive fitter.
-Outline mode is kept for compatibility with the older path-walking pipeline.
+Fill mode uses the mask-aware primitive fitter (`primitive_backend` + `fill_shaper`).
 """
 
 from __future__ import annotations
 
 import base64
 import logging
-import math
 import time
 
 import cv2
 import numpy as np
-from shapely.geometry import Polygon
 
 import fill_shaper
-import final_shaper as fs
 import primitive_backend
 
 
@@ -91,7 +87,7 @@ def _source_is_png(config):
 def _extract_fill_image_and_mask(image, mask_threshold):
     if image.ndim == 2:
         image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        mask = fs.extract_mask(image_bgr) > 0
+        mask = fill_shaper.extract_mask(image_bgr) > 0
     elif image.shape[2] == 4:
         alpha = image[:, :, 3].astype(np.float64) / 255.0
         image_bgr = image[:, :, :3].astype(np.float64)
@@ -100,7 +96,7 @@ def _extract_fill_image_and_mask(image, mask_threshold):
         mask = image[:, :, 3] >= int(mask_threshold)
     else:
         image_bgr = image[:, :, :3].copy()
-        mask = fs.extract_mask(image_bgr) > 0
+        mask = fill_shaper.extract_mask(image_bgr) > 0
     return image_bgr, mask
 
 
@@ -227,13 +223,8 @@ def _rescale_fill_output(result, target_width, target_height):
 
 
 def process_image(image_bytes, config=None):
-    if config is None:
-        config = {}
-
-    mode = config.get("mode", "fill")
-    if mode == "outline":
-        return process_image_outline(image_bytes, config)
-    return process_image_fill(image_bytes, config)
+    """处理入口。当前仅保留填充拟合（历史轮廓/装饰物模式已移除）。"""
+    return process_image_fill(image_bytes, config or {})
 
 
 def process_image_fill(image_bytes, config=None):
@@ -409,206 +400,3 @@ def process_image_fill(image_bytes, config=None):
         )
     return result
 
-
-def process_image_outline(image_bytes, config=None):
-    if config is None:
-        config = {}
-
-    started = time.time()
-    perf_started = time.perf_counter()
-    image = _decode_image(image_bytes)
-    height, width = image.shape[:2]
-    image_center = _resolve_origin(config, width, height)
-    logger.info(
-        "outline_process start image=%dx%d primitive_size=%s spacing=%s precision=%s allowed_shapes=%s",
-        width,
-        height,
-        config.get("primitive_size", 30),
-        config.get("spacing", 0.9),
-        config.get("precision", 0.3),
-        config.get("allowed_shapes"),
-    )
-
-    primitive_size = max(3, min(200, config.get("primitive_size", 15)))
-    min_size = max(2, int(primitive_size * 0.4))
-    max_size = max(min_size + 2, int(primitive_size * 2.0))
-
-    mask = fs.extract_mask(image)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-    dist_map = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-
-    allowed_types = None
-    type_colors = {}
-    primitive_presets = {}  # Store full primitive config for later use
-    # Support both primitives_json (legacy) and allowed_shapes (new)
-    shape_list = config.get("primitives", [])
-    if not shape_list and "allowed_shapes" in config:
-        shape_list = [{"shape": s, "color": "#ffffff"} for s in config["allowed_shapes"]]
-    if shape_list:
-        picked = set()
-        for primitive in shape_list:
-            shape = primitive.get("shape")
-            color = primitive.get("color")
-            if shape == "circle":
-                picked.add(fs.ShapeType.ELLIPSE)
-                if color:
-                    type_colors[fs.ShapeType.ELLIPSE] = color
-                # Store full preset config (image_asset_ref, type_id, etc.)
-                primitive_presets[fs.ShapeType.ELLIPSE] = primitive
-            elif shape == "rect":
-                picked.add(fs.ShapeType.RECTANGLE)
-                if color:
-                    type_colors[fs.ShapeType.RECTANGLE] = color
-                # Store full preset config (image_asset_ref, type_id, etc.)
-                primitive_presets[fs.ShapeType.RECTANGLE] = primitive
-        allowed_types = list(picked) if picked else []
-
-    fitting_cfg = fs.FittingConfig(
-        min_size=min_size,
-        max_size=max_size,
-        spacing_ratio=config.get("spacing", 0.9),
-        precision=max(0.0, min(1.0, config.get("precision", 0.3))),
-        allowed_types=allowed_types,
-    )
-
-    all_elements = []
-    image_area = width * height
-    min_contour_area = max(100, image_area * 0.00005)
-
-    for contour_index, contour in enumerate(contours):
-        area = cv2.contourArea(contour)
-        if area < min_contour_area:
-            continue
-
-        x, y, cw, ch = cv2.boundingRect(contour)
-        if cw > width * 0.95 and ch > height * 0.95:
-            continue
-        margin = 5
-        if (x + cw) < margin or x > (width - margin) or (y + ch) < margin or y > (height - margin):
-            continue
-
-        elements = fs.fit_beads(contour_index, contour, mask, dist_map, fitting_cfg, image_center)
-        points = contour.reshape(-1, 2).astype(np.float64)
-        if len(points) >= 3:
-            polygon = Polygon(points).simplify(1.0, preserve_topology=True)
-            if not polygon.is_valid:
-                polygon = polygon.buffer(0)
-            if polygon.is_valid and polygon.area >= fitting_cfg.min_size ** 2:
-                cum_arc, total_arc = fs.build_arc_length_index(points)
-                elements = fs.fill_gaps(
-                    elements,
-                    contour_index,
-                    points,
-                    cum_arc,
-                    total_arc,
-                    polygon,
-                    dist_map,
-                    image.shape,
-                    fitting_cfg,
-                    image_center,
-                )
-                elements = fs.expand_elements(elements, polygon, fitting_cfg, dist_map)
-        all_elements.extend(elements)
-
-    all_elements = fs.suppress_overlap(all_elements, image.shape)
-    for element in all_elements:
-        shape_type = element.get("type")
-        if shape_type in type_colors:
-            element["color"] = type_colors[shape_type]
-
-    if image.ndim == 2:
-        image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    elif image.shape[2] == 4:
-        image_bgr = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
-    else:
-        image_bgr = image
-
-    origin_units = {"x": image_center[0] / primitive_size, "y": -image_center[1] / primitive_size}
-    exported_elements = []
-    for element in all_elements:
-        item = {key: value for key, value in element.items() if not key.startswith("_")}
-        cx = float(item["center"]["x"]) / primitive_size
-        cy = -float(item["center"]["y"]) / primitive_size
-
-        if "size" in item:
-            for key in list(item["size"].keys()):
-                item["size"][key] = round(float(item["size"][key]) / primitive_size, 4)
-
-        rot_z = -float(item.get("rotation", 0))
-        if item.get("type") == fs.ShapeType.RECTANGLE and "size" in item:
-            rect_h = float(item["size"].get("height", 0))
-            theta = math.radians(rot_z)
-            cx += (rect_h * 0.5) * math.sin(theta)
-            cy += -(rect_h * 0.5) * math.cos(theta)
-
-        item["center"]["x"] = round(cx, 4)
-        item["center"]["y"] = round(cy, 4)
-        item["relative_position"] = {
-            "x": round(cx - origin_units["x"], 4),
-            "y": round(cy - origin_units["y"], 4),
-        }
-        item["rotation"] = {"x": 0, "y": 0, "z": round(rot_z, 4)}
-
-        # Convert ShapeType enum to string for consistency with fill mode
-        shape_type = item.get("type")
-        if shape_type == fs.ShapeType.ELLIPSE:
-            item["type"] = "ellipse"
-            item["shape"] = "circle"
-            preset = primitive_presets.get(fs.ShapeType.ELLIPSE, {})
-        elif shape_type == fs.ShapeType.RECTANGLE:
-            item["type"] = "rectangle"
-            item["shape"] = "rect"
-            preset = primitive_presets.get(fs.ShapeType.RECTANGLE, {})
-        else:
-            preset = {}
-
-        # Apply primitive preset config (image_asset_ref, type_id, etc.)
-        if preset:
-            if preset.get("image_asset_ref"):
-                item["image_asset_ref"] = int(preset["image_asset_ref"])
-            type_id = preset.get("type_id")
-            element_type_id = preset.get("element_type_id")
-            if type_id is not None:
-                item["type_id"] = int(type_id)
-            if element_type_id is not None:
-                item["element_type_id"] = int(element_type_id)
-            elif type_id is not None:
-                item["element_type_id"] = int(type_id)
-            if preset.get("rot_z") is not None:
-                item["rotation"]["z"] = round(float(item["rotation"]["z"]) + float(preset["rot_z"]), 4)
-            if preset.get("rot_y_add") is not None:
-                item["rotation"]["y"] = float(preset["rot_y_add"])
-                item["rot_y_add"] = float(preset["rot_y_add"])
-            if preset.get("name"):
-                item["name"] = str(preset["name"])
-
-        exported_elements.append(item)
-
-    elapsed = time.time() - started
-    logger.info(
-        "outline_process done elapsed=%.3fs elements=%d contours=%d",
-        time.perf_counter() - perf_started,
-        len(exported_elements),
-        len(contours),
-    )
-    return {
-        "mode": "outline",
-        "image_center": {"x": image_center[0], "y": image_center[1]},
-        "image_size": {"width": width, "height": height},
-        "config": {
-            "mode": "outline",
-            "primitive_size": primitive_size,
-            "pixel_per_unit": primitive_size,
-            "spacing": fitting_cfg.spacing_ratio,
-            "precision": fitting_cfg.precision,
-        },
-        "elements_count": len(exported_elements),
-        "elements": exported_elements,
-        "image_base64": _encode_png_base64(image_bgr),
-        "mask_base64": _encode_png_base64(mask),
-        "elapsed_seconds": round(elapsed, 2),
-    }

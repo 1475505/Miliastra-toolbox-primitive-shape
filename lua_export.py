@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """图元拟合结果 -> 千星奇域客户端 Lua 脚本导出。
 
-输入为 shaper_core.process_image 的 result_data（fill / outline 两种模式通用），
+输入为 shaper_core.process_image 的 result_data（填充拟合结果），
 输出一份自带使用说明注释的 levelScript.lua 文本：
 
     结果 JSON -> 原图像素坐标 -> 调色板去重 -> ELEMENTS 记录表 -> Lua 文本

@@ -10,12 +10,16 @@ project, but fixes the main issues in the previous version:
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
+
+
+logger = logging.getLogger(__name__)
 
 
 class ShapeType:
@@ -29,6 +33,72 @@ DEFAULT_IMAGE_ASSET_REFS = {
     ShapeType.RECT: 100001,
     ShapeType.TRIANGLE: 100003,
 }
+
+
+def extract_mask(img):
+    """智能提取前景 mask (白色=前景, 黑色=背景)。
+
+    填充模式的默认（白底）分支用它取前景蒙版。策略优先级：
+    1. RGBA 图片 → 用 alpha 通道 (阈值 127)
+    2. 无 alpha → 边框采样推断背景色 → 计算每像素到背景色的颜色距离 → Otsu 自适应分割
+    3. Fallback: 灰度 Otsu 反转 / 固定阈值
+
+    返回: 二值 mask (uint8, 0/255)
+    """
+    h, w = img.shape[:2]
+
+    # ── 策略 1: Alpha 通道 ──
+    if len(img.shape) == 3 and img.shape[2] == 4:
+        alpha = img[:, :, 3]
+        _, mask = cv2.threshold(alpha, 127, 255, cv2.THRESH_BINARY)
+        logger.info("[mask] alpha 通道, 前景=%.1f%%", np.sum(mask > 0) / (h * w) * 100)
+        return mask
+
+    # ── 准备灰度和 BGR ──
+    if len(img.shape) == 2:
+        gray = img
+        bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    else:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        bgr = img[:, :, :3] if img.shape[2] >= 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+    # ── 策略 2: 边框采样 + 颜色距离 + Otsu ──
+    margin = max(2, min(h, w) // 50)  # 自适应采样宽度
+    border_pixels = np.concatenate([
+        bgr[:margin, :].reshape(-1, 3),                 # 顶部
+        bgr[-margin:, :].reshape(-1, 3),                # 底部
+        bgr[margin:-margin, :margin].reshape(-1, 3),    # 左侧
+        bgr[margin:-margin, -margin:].reshape(-1, 3),   # 右侧
+    ])
+
+    # 背景色 = 边框像素的中值 (比均值更鲁棒)
+    bg_color = np.median(border_pixels, axis=0).astype(np.float64)
+
+    diff = bgr.astype(np.float64) - bg_color
+    color_dist = np.sqrt(np.sum(diff ** 2, axis=2))
+    max_dist = max(color_dist.max(), 1.0)
+    dist_u8 = np.clip(color_dist / max_dist * 255, 0, 255).astype(np.uint8)
+
+    otsu_t, mask = cv2.threshold(dist_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    fg_ratio = np.sum(mask > 0) / (h * w)
+    logger.info("[mask] 边框采样背景色 BGR=(%.0f,%.0f,%.0f) Otsu=%.0f 前景=%.1f%%",
+                bg_color[0], bg_color[1], bg_color[2], otsu_t, fg_ratio * 100)
+
+    if 0.01 < fg_ratio < 0.95:
+        return mask
+
+    # ── 策略 3: 灰度 Otsu (fallback) ──
+    otsu_t2, mask2 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    fg_ratio2 = np.sum(mask2 > 0) / (h * w)
+    logger.info("[mask] 灰度 Otsu fallback 阈值=%.0f 前景=%.1f%%", otsu_t2, fg_ratio2 * 100)
+
+    if 0.01 < fg_ratio2 < 0.95:
+        return mask2
+
+    # ── 最后手段: 固定阈值 ──
+    _, mask3 = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
+    logger.info("[mask] 固定阈值 fallback")
+    return mask3
 
 
 @dataclass

@@ -109,7 +109,7 @@ def _attachment_filename(filename):
 
 def _convert_result_to_gia_bytes(result_data, cfg=None, image_name="", origin_x=None, origin_y=None):
     cfg = cfg or {}
-    pixel_per_unit = float(result_data.get("config", {}).get("pixel_per_unit") or cfg.get("primitive_size") or 1.0)
+    pixel_per_unit = float(result_data.get("config", {}).get("pixel_per_unit") or 1.0)
     origin_default = result_data.get("image_center", {"x": 0, "y": 0})
     resolved_origin_x = float(origin_default.get("x", 0) if origin_x is None else origin_x)
     resolved_origin_y = float(origin_default.get("y", 0) if origin_y is None else origin_y)
@@ -136,10 +136,20 @@ def _convert_result_to_gia_bytes(result_data, cfg=None, image_name="", origin_x=
             "size": element.get("size", {}),
             "rotation": rotation,
             "color": element.get("color"),
-            "alpha": element.get("alpha"),
-            "packed_color": element.get("packed_color"),
             "image_asset_ref": element.get("image_asset_ref", DEFAULT_IMAGE_ASSET_REFS.get(shape_type, 100002)),
         }
+        # 必须「省略键」而非写入 None：构建器用
+        #   packed_color = int(element.get("packed_color", 默认值))
+        # 取值，而 Python 在键存在、值为 None 时不会采用默认值，会直接 int(None) 抛
+        # TypeError，导致导出返回 500。省略后构建器回落 0x80FFFFFF（alpha=128），
+        # 与前端画布渲染 / CSS 导出的 0.5 回落保持一致。
+        # alpha 一律归一化成 float：本地模式（WASM）的结果经 JSON.stringify 传输，
+        # JS 里 1.0 会序列化成整数 1，构建器若按整数当 0-255 量程会把它变成 1/255
+        # （几乎全透明），表现为「导出 GIA 透明度失效」。在入口统一转 float 更稳。
+        if element.get("alpha") is not None:
+            exported["alpha"] = float(element["alpha"])
+        if element.get("packed_color") is not None:
+            exported["packed_color"] = int(element["packed_color"]) & 0xFFFFFFFF
         if element.get("type_id") is not None:
             exported["type_id"] = int(element["type_id"])
         elif element.get("element_type_id") is not None:
@@ -194,7 +204,7 @@ def _parse_cli_shape_list(shape_args):
 def _build_cli_config(args, input_path):
     source_ext = os.path.splitext(input_path)[1].lower()
     cfg = {
-        "mode": args.mode,
+        "mode": "fill",
         "source_filename": os.path.basename(input_path),
         "source_ext": source_ext,
         "origin": {
@@ -204,19 +214,13 @@ def _build_cli_config(args, input_path):
         },
     }
 
-    if args.mode == "fill":
-        cfg["num_primitives"] = max(40, min(3000, int(args.num_primitives)))
-        cfg["mask_threshold"] = int(args.mask_threshold)
-        cfg["detail_scale"] = float(args.detail_scale)
-        cfg["image_scale"] = float(args.image_scale)
-        cfg["output_alpha"] = float(args.output_alpha) / 100.0
-        cfg["enable_png_mode"] = bool(args.enable_png_mode)
-        cfg["allowed_shapes"] = _parse_cli_shape_list(args.shape)
-    else:
-        cfg["primitive_size"] = float(args.primitive_size)
-        cfg["spacing"] = float(args.spacing)
-        cfg["precision"] = float(args.precision)
-        cfg["allowed_shapes"] = [shape for shape in _parse_cli_shape_list(args.shape) if shape in ("circle", "rect")] or ["circle"]
+    cfg["num_primitives"] = max(40, min(3000, int(args.num_primitives)))
+    cfg["mask_threshold"] = int(args.mask_threshold)
+    cfg["detail_scale"] = float(args.detail_scale)
+    cfg["image_scale"] = float(args.image_scale)
+    cfg["output_alpha"] = float(args.output_alpha) / 100.0
+    cfg["enable_png_mode"] = bool(args.enable_png_mode)
+    cfg["allowed_shapes"] = _parse_cli_shape_list(args.shape)
     return cfg
 
 
@@ -298,7 +302,6 @@ def _create_arg_parser():
     parser.add_argument("--input", help="input image path for CLI mode")
     parser.add_argument("--output", help="output .gia path for CLI mode")
     parser.add_argument("--name", help="character name used as GIA group_name (defaults to input filename stem)")
-    parser.add_argument("--mode", choices=["fill", "outline"], default="fill", help="processing mode for CLI mode")
     parser.add_argument("--shape", action="append", help="allowed shape, repeatable: circle / rect / triangle")
     parser.add_argument("--origin-x", type=float, help="custom origin x in pixels for gia export")
     parser.add_argument("--origin-y", type=float, help="custom origin y in pixels for gia export")
@@ -310,9 +313,6 @@ def _create_arg_parser():
     parser.add_argument("--mask-threshold", type=int, default=127, help="fill mode alpha threshold")
     parser.add_argument("--enable-png-mode", action="store_true", help="fill mode transparent png output")
 
-    parser.add_argument("--primitive-size", type=float, default=30.0, help="outline mode primitive size")
-    parser.add_argument("--spacing", type=float, default=0.9, help="outline mode spacing")
-    parser.add_argument("--precision", type=float, default=0.3, help="outline mode precision")
     parser.add_argument("--gia-mode", choices=["overlimit", "classic"], default="overlimit", help="GIA output mode for CLI (default: overlimit)")
     parser.add_argument("--export", choices=["gia", "lua"], default="gia", help="CLI export format: gia (default) or lua client script")
     return parser
@@ -338,7 +338,6 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
         <button type="button" id="imageToolTab" class="tool-tab active">图片拟合</button>
         <button type="button" id="classicToolTab" class="tool-tab">GIA转换</button>
       </nav>
-      <a href="#" id="outlineLink" class="topbar-link topbar-link-subtle">装饰物</a>
     </div>
     <div class="topbar-right">
       <a href="https://github.com/1475505/Miliastra-toolbox-primitive-shape" target="_blank" class="topbar-link">仓库</a>
@@ -376,7 +375,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
             </section>
 
             <section class="panel-section" id="shapeTypeSection">
-              <h3 id="shapeSectionTitle">图元类型</h3>
+              <h3>图元类型</h3>
 
               <div id="fillShapeSection">
                 <div class="shape-checks">
@@ -397,23 +396,6 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                   </label>
                 </div>
                 <p class="hint" id="shapeHint">默认只启用圆形；需要时再叠加矩形或三角形。</p>
-              </div>
-
-              <div id="primitiveListSection" hidden>
-                <div class="outline-intro">
-                  <strong>装饰物元件列表</strong>
-                  <span>装饰物模式会优先使用这里的元件参数，生成结果时保留类型 ID、元件类型和旋转设置。</span>
-                </div>
-                <div class="primitive-toolbar">
-                  <button type="button" id="addCirclePrimitiveBtn" class="btn-chip">+ 圆形元件</button>
-                  <button type="button" id="addRectPrimitiveBtn" class="btn-chip">+ 矩形元件</button>
-                </div>
-                <p class="hint" id="primitiveCountHint">建议至少保留一种元件类型。</p>
-                <div id="primitiveList" class="primitive-list"></div>
-                <div id="primitiveEmpty" class="primitive-empty" hidden>
-                  <p>还没有装饰物元件</p>
-                  <span>先添加一个元件，再选择预设或手动填写参数。</span>
-                </div>
               </div>
             </section>
 
@@ -477,38 +459,6 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                     <span>启用 PNG 模式</span>
                   </label>
                   <p class="param-desc">保留 PNG 的透明背景；关闭时先铺白底再拟合。</p>
-                </div>
-              </section>
-            </div>
-
-            <div id="outlineParams" hidden>
-              <section class="panel-section">
-                <h3>轮廓参数</h3>
-                <div class="param-item">
-                  <div class="param-head">
-                    <span class="param-title">图元大小</span>
-                    <span id="olPrimSizeVal" class="val-tag">30</span>
-                  </div>
-                  <p class="param-desc">轮廓模式下每个图元的基础尺寸。</p>
-                  <input type="range" name="ol_primitive_size" id="olPrimSize" min="3" max="200" step="1" value="30">
-                </div>
-
-                <div class="param-item">
-                  <div class="param-head">
-                    <span class="param-title">间距</span>
-                    <span id="olSpacingVal" class="val-tag">0.9</span>
-                  </div>
-                  <p class="param-desc">图元之间的间距比例，越大越密。</p>
-                  <input type="range" name="ol_spacing" id="olSpacing" min="0.1" max="1.0" step="0.05" value="0.9">
-                </div>
-
-                <div class="param-item">
-                  <div class="param-head">
-                    <span class="param-title">精度</span>
-                    <span id="olPrecisionVal" class="val-tag">0.3</span>
-                  </div>
-                  <p class="param-desc">拟合精度，越高越精细但更慢。</p>
-                  <input type="range" name="ol_precision" id="olPrecision" min="0.0" max="1.0" step="0.05" value="0.3">
                 </div>
               </section>
             </div>
@@ -784,25 +734,6 @@ PAGE_RESULT = r"""<!DOCTYPE html>
           <button type="submit" class="btn-primary" style="margin-top:8px">重新处理</button>
         </form>
       </section>
-
-      <section class="panel-section" id="retrySectionOutline" hidden>
-        <h3>重新处理</h3>
-        <form action="/retry/{{ task_id }}" method="POST">
-          <div class="config-row">
-            <label>图元大小</label>
-            <input type="number" name="primitive_size" value="{{ cfg_ol_size }}" min="3" max="200" class="num-input">
-          </div>
-          <div class="config-row">
-            <label>间距</label>
-            <input type="number" name="spacing" value="{{ cfg_ol_spacing }}" min="0.1" max="1.0" step="0.05" class="num-input">
-          </div>
-          <div class="config-row">
-            <label>精度</label>
-            <input type="number" name="precision" value="{{ cfg_ol_precision }}" min="0.0" max="1.0" step="0.05" class="num-input">
-          </div>
-          <button type="submit" class="btn-primary" style="margin-top:8px">重新处理</button>
-        </form>
-      </section>
     </aside>
 
     <main class="canvas-area">
@@ -892,7 +823,7 @@ def submit():
         return "图片为空", 400
     image_name = _derive_upload_image_name(upload.filename)
 
-    mode = request.form.get("mode", "fill")
+    mode = "fill"
     cfg = {
         "mode": mode,
         "source_filename": upload.filename or "",
@@ -911,46 +842,32 @@ def submit():
     except Exception:
         primitives = []
 
-    if mode == "fill":
-        # Support both slider and manual input for num_primitives
-        manual_prims = request.form.get("num_primitives_manual", "")
-        if manual_prims:
-            cfg["num_primitives"] = max(40, min(3000, int(manual_prims)))
-        else:
-            cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", 400))))
-        cfg["mask_threshold"] = int(request.form.get("mask_threshold", 127))
-        cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
-        cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
-        cfg["output_alpha"] = float(request.form.get("output_alpha", 100)) / 100.0
-        cfg["enable_png_mode"] = request.form.get("enable_png_mode") == "on"
-        if request.form.get("enable_target_resolution") == "on":
-            try:
-                cfg["target_width"] = max(16, min(4096, int(request.form.get("target_width", 0))))
-                cfg["target_height"] = max(16, min(4096, int(request.form.get("target_height", 0))))
-            except (TypeError, ValueError):
-                cfg.pop("target_width", None)
-                cfg.pop("target_height", None)
-        allowed_shapes = []
-        if request.form.get("shape_circle") == "on":
-            allowed_shapes.append("circle")
-        if request.form.get("shape_rect") == "on":
-            allowed_shapes.append("rect")
-        if request.form.get("shape_triangle") == "on":
-            allowed_shapes.append("triangle")
-        cfg["allowed_shapes"] = allowed_shapes or ["circle"]
+    # Support both slider and manual input for num_primitives
+    manual_prims = request.form.get("num_primitives_manual", "")
+    if manual_prims:
+        cfg["num_primitives"] = max(40, min(3000, int(manual_prims)))
     else:
-        cfg["primitive_size"] = float(request.form.get("ol_primitive_size", 30))
-        cfg["spacing"] = float(request.form.get("ol_spacing", 0.9))
-        cfg["precision"] = float(request.form.get("ol_precision", 0.3))
-        if primitives:
-            outline_shapes = []
-            for primitive in primitives:
-                shape = str(primitive.get("shape", "")).strip().lower()
-                if shape in ("circle", "rect") and shape not in outline_shapes:
-                    outline_shapes.append(shape)
-            cfg["allowed_shapes"] = outline_shapes or ["circle"]
-        else:
-            cfg["allowed_shapes"] = ["circle"]
+        cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", 400))))
+    cfg["mask_threshold"] = int(request.form.get("mask_threshold", 127))
+    cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
+    cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
+    cfg["output_alpha"] = float(request.form.get("output_alpha", 100)) / 100.0
+    cfg["enable_png_mode"] = request.form.get("enable_png_mode") == "on"
+    if request.form.get("enable_target_resolution") == "on":
+        try:
+            cfg["target_width"] = max(16, min(4096, int(request.form.get("target_width", 0))))
+            cfg["target_height"] = max(16, min(4096, int(request.form.get("target_height", 0))))
+        except (TypeError, ValueError):
+            cfg.pop("target_width", None)
+            cfg.pop("target_height", None)
+    allowed_shapes = []
+    if request.form.get("shape_circle") == "on":
+        allowed_shapes.append("circle")
+    if request.form.get("shape_rect") == "on":
+        allowed_shapes.append("rect")
+    if request.form.get("shape_triangle") == "on":
+        allowed_shapes.append("triangle")
+    cfg["allowed_shapes"] = allowed_shapes or ["circle"]
 
     if primitives:
         cfg["primitives"] = primitives
@@ -973,9 +890,6 @@ def submit():
             "num_primitives": cfg.get("num_primitives"),
             "detail_scale": cfg.get("detail_scale"),
             "allowed_shapes": cfg.get("allowed_shapes"),
-            "primitive_size": cfg.get("primitive_size"),
-            "spacing": cfg.get("spacing"),
-            "precision": cfg.get("precision"),
             "enable_png_mode": cfg.get("enable_png_mode"),
         },
     )
@@ -1016,21 +930,16 @@ def retry(tid):
     mode = old_cfg.get("mode", "fill")
     cfg = {"mode": mode}
 
-    if mode == "fill":
-        cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))))
-        cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
-        cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
-        cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))
-        cfg["output_alpha"] = float(request.form.get("output_alpha", int(old_cfg.get("output_alpha", 1.0) * 100))) / 100.0
-        cfg["enable_png_mode"] = old_cfg.get("enable_png_mode", False)
-        cfg["allowed_shapes"] = old_cfg.get("allowed_shapes", ["circle"])
-        if old_cfg.get("target_width") and old_cfg.get("target_height"):
-            cfg["target_width"] = old_cfg["target_width"]
-            cfg["target_height"] = old_cfg["target_height"]
-    else:
-        cfg["primitive_size"] = float(request.form.get("primitive_size", old_cfg.get("primitive_size", 30)))
-        cfg["spacing"] = float(request.form.get("spacing", old_cfg.get("spacing", 0.9)))
-        cfg["precision"] = float(request.form.get("precision", old_cfg.get("precision", 0.3)))
+    cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))))
+    cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
+    cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
+    cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))
+    cfg["output_alpha"] = float(request.form.get("output_alpha", int(old_cfg.get("output_alpha", 1.0) * 100))) / 100.0
+    cfg["enable_png_mode"] = old_cfg.get("enable_png_mode", False)
+    cfg["allowed_shapes"] = old_cfg.get("allowed_shapes", ["circle"])
+    if old_cfg.get("target_width") and old_cfg.get("target_height"):
+        cfg["target_width"] = old_cfg["target_width"]
+        cfg["target_height"] = old_cfg["target_height"]
 
     if "primitives" in old_cfg:
         cfg["primitives"] = old_cfg["primitives"]
@@ -1054,9 +963,6 @@ def retry(tid):
             "num_primitives": cfg.get("num_primitives"),
             "detail_scale": cfg.get("detail_scale"),
             "allowed_shapes": cfg.get("allowed_shapes"),
-            "primitive_size": cfg.get("primitive_size"),
-            "spacing": cfg.get("spacing"),
-            "precision": cfg.get("precision"),
         },
     )
 
@@ -1220,9 +1126,6 @@ def result(tid):
         cfg_np=cfg.get("num_primitives", 400),
         cfg_scale=cfg.get("image_scale", 1.0),
         cfg_alpha=int(cfg.get("output_alpha", 1.0) * 100),
-        cfg_ol_size=cfg.get("primitive_size", 30),
-        cfg_ol_spacing=cfg.get("spacing", 0.9),
-        cfg_ol_precision=cfg.get("precision", 0.3),
     )
 
 
@@ -1288,7 +1191,7 @@ def download_overlimit_gia(tid):
 
     result_data = task["result"]
     cfg = task.get("config", {})
-    pixel_per_unit = float(result_data.get("config", {}).get("pixel_per_unit") or cfg.get("primitive_size") or 1.0)
+    pixel_per_unit = float(result_data.get("config", {}).get("pixel_per_unit") or 1.0)
     origin_default = result_data.get("image_center", {"x": 0, "y": 0})
     try:
         origin_x = float(request.args.get("origin_x", origin_default.get("x", 0)))

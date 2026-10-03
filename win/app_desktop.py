@@ -112,7 +112,7 @@ def main():
 
     # 创建原生窗口
     window = webview.create_window(
-        title='Shaper — 轮廓描边工具',
+        title='Shaper — 图片图元拟合工具',
         url=url,
         js_api=DesktopApi(),
         width=1280,

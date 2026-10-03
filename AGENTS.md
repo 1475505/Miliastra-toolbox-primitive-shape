@@ -1,15 +1,14 @@
 # 千星奇域图片拟合工具 (Shaper)
 
-图片拟合工具，用基础图元（椭圆/矩形/三角形）沿轮廓或填充区域来拟合图片，导出为 GIA（超限/经典）、Lua 客户端绘制脚本、JSON/CSS/SVG/PNG。
+图片拟合工具，用基础图元（椭圆/矩形/三角形）在图片前景区域内拟合，导出为 GIA（超限/经典）、Lua 客户端绘制脚本、JSON/CSS/SVG/PNG。
 
 ## 目录结构
 
 ```
 ├── server.py                 # Flask Web 服务器 + HTML 模板（单文件 ~1300 行）
-├── shaper_core.py            # 核心 API 入口（填充+轮廓，含目标分辨率重定标）
+├── shaper_core.py            # 核心 API 入口（含目标分辨率重定标）
 ├── fill_shaper.py            # 填充模式引擎 — 随机优化拟合（蒙版/软权重）
-├── final_shaper.py           # 轮廓模式引擎 — 路径行走拟合（V6）
-├── primitive_backend.py      # Go primitive 后端封装（保留兼容）
+├── primitive_backend.py      # Go primitive 后端封装（图元搜索 + alpha 软权重）
 ├── lua_export.py             # 拟合结果 → 客户端 Lua 绘制脚本（PALETTE/ELEMENTS 版式，含使用说明头）
 ├── gia_lua.py                # 素材组 GIA → 客户端 Lua 绘制脚本（ROOT/ELEMENTS 版式）
 ├── build_pyc.py              # 编译 .pyc 脚本（将 .py 编译部署用）
@@ -27,7 +26,7 @@
 │   └── test_node.mjs         # Node 冒烟测试
 │
 ├── web/
-│   ├── upload.js             # 上传页逻辑 + 预设 + 本地模式 (~1000 行)
+│   ├── upload.js             # 上传页逻辑 + 本地模式
 │   ├── local_fit.js          # 本地模式客户端（预处理、结果组装、/register_result）
 │   ├── app.js                # 结果页 Canvas 交互
 │   ├── style.css             # 全局样式
@@ -69,10 +68,9 @@
 
 ## 核心模式
 
-| 模式           | 引擎                | 拟合方式             | 图元类型         |
-| ------------ | ----------------- | ---------------- | ------------ |
-| 轮廓 (Outline) | `final_shaper.py` | 路径行走（沿轮廓排列）      | 椭圆、矩形        |
-| 填充 (Fill)    | `fill_shaper.py`  | 随机优化 + 爬山（区域内分布） | 圆形、椭圆、矩形、三角形 |
+只有一种拟合方式：填充模式。用 `fill_shaper.py` + Go primitive 后端在前景区域内做随机优化 + 爬山搜索，图元支持圆形（椭圆）、矩形、三角形。
+
+> 历史上的「轮廓 / 装饰物拟合」模式（`final_shaper.py`，沿轮廓路径行走）已整块移除。
 
 ## 导出格式
 

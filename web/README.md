@@ -1,6 +1,6 @@
 # Shaper Web 服务
 
-基于 Flask MPA（多页应用）架构的图元拟合 Web 服务（填充模式 + 轮廓模式），提供三栏交互式 UI；可开启浏览器内 WASM 本地模式。
+基于 Flask MPA（多页应用）架构的图元拟合 Web 服务，提供三栏交互式 UI；可开启浏览器内 WASM 本地模式。
 
 ## 文件结构
 
@@ -49,11 +49,10 @@ open http://127.0.0.1:5555
 
 ### 上传页 `/`
 
-- **本地模式**：顶部开关；开启后拟合在浏览器内用 WebAssembly 完成（仅填充模式、单图处理），不上传图片到服务端
+- **本地模式**：顶部开关；开启后拟合在浏览器内用 WebAssembly 完成（单图处理），不上传图片到服务端
 - **图片上传**：拖放、点击或 Ctrl+V 粘贴，支持预览
 - **图元类型**：勾选启用圆形 / 矩形 / 三角形（默认仅圆形）
 - **填充参数**：图元数量（40–1200 滑杆，最多 3000）、输出尺寸（按比例缩放 / 指定分辨率 16–4096）、透明度、PNG 模式
-- **轮廓参数**：图元大小（3–200）、间距（0.1–1.0）、精度（0–1），并可维护装饰物元件列表
 - **GIA 模式转换**：独立标签页，超限 ↔ 经典模式互转，或素材组 GIA 转 Lua 绘制脚本
 - **使用说明**：页面内折叠面板，含流程、注意事项与教程链接
 
@@ -94,14 +93,10 @@ open http://127.0.0.1:5555
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `mode` | string | `fill` | 处理模式：`fill`（填充）/ `outline`（轮廓） |
-| `num_primitives` | int | 400 | 填充模式拟合图元数量 |
-| `image_scale` | float | 1.0 | 填充模式图片缩放（指定分辨率时按 1.0） |
-| `output_alpha` | float | 100 | 填充模式透明度百分比 |
-| `detail_scale` | float | 1.0 | 填充模式细节缩放 |
-| `mask_threshold` | int | 127 | 填充模式透明 PNG 的 alpha 阈值 |
-| `enable_png_mode` | bool | false | 填充模式保留 PNG 透明背景 |
-| `primitive_size` | int | 15 | 轮廓模式图元基准大小，派生 min_size = size×0.4, max_size = size×2.0 |
-| `precision` | float | 0.3 | 轮廓拟合精度 (0=粗略, 1=精细) |
-| `spacing` | float | 0.9 | 轮廓模式图元间距系数 |
-| `primitives_json` | string | — | 可选，JSON 格式的图元定义列表 |
+| `num_primitives` | int | 400 | 拟合图元数量 |
+| `image_scale` | float | 1.0 | 图片缩放（指定分辨率时按 1.0） |
+| `output_alpha` | float | 100 | 输出透明度百分比 |
+| `detail_scale` | float | 1.0 | 细节缩放 |
+| `mask_threshold` | int | 127 | 透明 PNG 的 alpha 阈值 |
+| `enable_png_mode` | bool | false | 保留 PNG 透明背景 |
+| `primitives_json` | string | — | 可选，JSON 格式的图元类型清单（兼容旧数据） |

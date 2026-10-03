@@ -1530,137 +1530,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .shape-icon { font-size: 16px; line-height: 1; }
 
 /* ============================================================
-   Outline Intro Card
-   ============================================================ */
-.outline-intro {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  background: var(--md-primary-container);
-  border: none;
-  border-radius: var(--md-shape-md);
-  color: var(--md-on-surface-variant);
-  font-size: 12px;
-}
-.outline-intro strong {
-  color: var(--md-on-primary-container);
-  font-size: 13px;
-}
-
-/* ============================================================
-   Primitive Toolbar & Cards
-   ============================================================ */
-.primitive-toolbar {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.primitive-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.primitive-empty {
-  margin-top: 10px;
-  border: 1px dashed var(--md-outline-variant);
-  border-radius: var(--md-shape-md);
-  background: var(--md-surface-container-low);
-  padding: 18px 16px;
-  text-align: center;
-  color: var(--md-outline);
-}
-.primitive-empty p {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--md-on-surface-variant);
-  margin-bottom: 4px;
-}
-.primitive-empty span { font-size: 12px; }
-
-.primitive-card {
-  padding: 16px;
-  border-radius: var(--md-shape-md);
-  border: 1px solid var(--md-outline-variant);
-  background: var(--md-surface-container-low);
-  box-shadow: none;
-  transition: border-color 0.2s;
-}
-.primitive-card:hover {
-  border-color: var(--md-outline);
-}
-
-.primitive-card-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.primitive-card-head .form-select {
-  flex: 1;
-  height: 40px;
-}
-
-.primitive-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 78px;
-  padding: 0 14px;
-  height: 28px;
-  border-radius: var(--md-shape-full);
-  background: var(--md-primary-container);
-  color: var(--md-primary);
-  font-size: 12px;
-  font-weight: 700;
-  font-family: var(--font-sans);
-}
-.primitive-badge[data-shape="rect"] {
-  background: var(--md-tertiary-container);
-  color: var(--md-tertiary);
-}
-
-.primitive-remove {
-  width: auto;
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-.primitive-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.primitive-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.primitive-field-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--md-on-surface-variant);
-  letter-spacing: 0.2px;
-}
-.primitive-field .form-select,
-.primitive-field .form-input,
-.primitive-field input {
-  width: 100%;
-}
-
-.primitive-meta {
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--md-on-surface-variant);
-  line-height: 1.5;
-}
-
-/* ============================================================
    Preview Compare Bar
    ============================================================ */
 .preview-compare {
@@ -1717,19 +1586,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ============================================================
-   Topbar Link Subtle (outline link)
-   ============================================================ */
-.topbar-link-subtle {
-  background: var(--md-primary-container);
-  color: var(--md-on-primary-container);
-  font-weight: 600;
-}
-.topbar-link-subtle:hover {
-  background: #c9caff;
-  color: var(--md-on-primary-container);
-}
-
-/* ============================================================
    Drop Icon (for upload area)
    ============================================================ */
 .drop-icon {
@@ -1762,13 +1618,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
    ============================================================ */
 @media (max-width: 1280px) {
   .panel { width: 288px; }
-}
-
-@media (max-width: 960px) {
-  .primitive-toolbar,
-  .primitive-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ============================================================

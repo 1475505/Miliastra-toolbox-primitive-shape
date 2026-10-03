@@ -291,21 +291,38 @@ class FillPipelineTests(unittest.TestCase):
         finally:
             server.tasks.pop(tid, None)
 
-    def test_image_mode_export_order_keeps_background_first(self):
+    def test_image_mode_export_order_reverses_bottom_up_input(self):
+        # 契约（与 editor-webui 的构建器一致）：调用方按「底 → 顶」传入（背景在最前、
+        # 最上层在最后），构建器整体反转为 GIA 的存储顺序。背景因此落在末尾。
         ordered = json_to_gia._storage_order_elements_for_image_mode([
-            {"type": "ellipse", "id": 1},
             {"type": "rectangle", "id": 99, "is_background": True},
+            {"type": "ellipse", "id": 1},
             {"type": "triangle", "id": 2},
         ])
-        self.assertEqual([item["id"] for item in ordered], [99, 2, 1])
+        self.assertEqual([item["id"] for item in ordered], [2, 1, 99])
 
-    def test_image_mode_runtime_order_keeps_background_first(self):
+    def test_image_mode_runtime_order_reverses_bottom_up_input(self):
         ordered = json_to_gia._order_elements_for_image_mode([
-            {"type": "ellipse", "id": 1},
             {"type": "rectangle", "id": 99, "is_background": True},
+            {"type": "ellipse", "id": 1},
             {"type": "triangle", "id": 2},
         ])
-        self.assertEqual([item["id"] for item in ordered], [99, 2, 1])
+        self.assertEqual([item["id"] for item in ordered], [2, 1, 99])
+
+    def test_fill_process_emits_background_first_in_element_list(self):
+        # 拟合结果里的元素列表是「底 → 顶」：白底由 process_image_fill 插到下标 0，
+        # 与构建器的反转契约配合，保证导出后白底在最底层。
+        png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo", "demo.png")
+        with open(png, "rb") as fh:
+            raw = fh.read()
+        result = shaper_core.process_image_fill(raw, {
+            "num_primitives": 20, "image_scale": 1.0, "output_alpha": 1.0,
+            "enable_png_mode": False, "source_ext": ".png", "allowed_shapes": ["circle"],
+        })
+        elements = result["elements"]
+        self.assertTrue(elements)
+        self.assertTrue(elements[0].get("is_background"))
+        self.assertEqual(elements[0].get("packed_color"), 0xFFFFFFFF)
 
     def test_triangle_results_export_preserves_base_and_height(self):
         results = [{

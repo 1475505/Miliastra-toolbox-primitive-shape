@@ -146,7 +146,7 @@
 
   /* 本地任务重试门控：源图未补传到服务端前，/retry 无法在服务端重跑 */
   function setRetryGate(disabled, text) {
-    ["retrySectionFill", "retrySectionOutline"].forEach((id) => {
+    ["retrySectionFill"].forEach((id) => {
       const section = $(id);
       if (!section) return;
       section.querySelectorAll("button[type=submit]").forEach((button) => {
@@ -617,8 +617,8 @@
     const triangleCount = elements.filter((element) => normalizeType(element.type) === "triangle").length;
     const rectCount = elements.length - ellipseCount - triangleCount;
 
-    if ($("modeLabel")) $("modeLabel").textContent = mode === "fill" ? "填充拟合" : "轮廓描边";
-    if ($("statMode")) $("statMode").textContent = mode === "fill" ? "填充拟合" : "轮廓描边";
+    if ($("modeLabel")) $("modeLabel").textContent = "填充拟合";
+    if ($("statMode")) $("statMode").textContent = "填充拟合";
     if ($("statTotal")) $("statTotal").textContent = String(elements.length);
     if ($("statEllipse")) $("statEllipse").textContent = String(ellipseCount);
     if ($("statRect")) $("statRect").textContent = String(rectCount);
@@ -627,19 +627,15 @@
     if ($("elemCountDisplay")) $("elemCountDisplay").textContent = `图元: ${elements.length}`;
 
     const fillRetry = $("retrySectionFill");
-    const outlineRetry = $("retrySectionOutline");
-    if (fillRetry) fillRetry.hidden = mode !== "fill";
-    if (outlineRetry) outlineRetry.hidden = mode === "fill";
+    if (fillRetry) fillRetry.hidden = false;
 
     const compare = $("previewCompare");
-    if (compare) compare.hidden = mode !== "fill";
+    if (compare) compare.hidden = false;
     if ($("originalThumb") && data.image_base64) $("originalThumb").src = "data:;base64," + data.image_base64;
   }
 
   function applyVariantUi() {
-    const modeText = mode === "fill"
-      ? (fillVariant === "png" ? "PNG 填充" : "填充拟合")
-      : "轮廓描边";
+    const modeText = fillVariant === "png" ? "PNG 填充" : "填充拟合";
     if ($("modeLabel")) $("modeLabel").textContent = modeText;
     if ($("statMode")) $("statMode").textContent = modeText;
     if ($("showMask") && $("showMask").parentElement) {
