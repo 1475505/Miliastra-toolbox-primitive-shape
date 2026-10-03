@@ -110,7 +110,14 @@ python server.py --cli --input demo.png --export lua --output output.lua
 
 ### JSON
 
-JSON 导出包含全部图元的坐标、尺寸、旋转、透明度与颜色，适合作为再次导入或其他工具链的中间数据。
+JSON 导出是一份 **千星图片编辑器（editor-webui）可直接导入**的场景文档：
+
+- `canvas`：画布尺寸与背景；不透明结果写 `#ffffff`，透明结果写 `transparent`
+- `elements`：扁平图元列表，字段为 `id / name / type / x / y / width / height / rotation / color / opacity / zIndex / isBackground`；`x`/`y` 是中心坐标，数组顺序即层级
+- `meta`：来源名（`sourceName`），编辑器用它做显示名
+- `shaper`：拟合工具自己的原始元数据（`origin`、`image_size`、`config`、`mask`、`group_name`），编辑器会忽略这一块
+
+坐标、尺寸与 `rotation` 都是导出图上的像素值（与 CSS 导出共用同一套换算），`rotation` 顺时针为正、单位为度。需要按自定义原点换算时用 `shaper.origin`（单位制坐标，`x` 向右、`y` 向上）。
 
 ### SVG
 
@@ -143,6 +150,18 @@ CSS 导出适合前端集成，但它不是“只放一个 css 文件就能直�
 - `.shaper-container`
 - `.shaper-element`
 - `.shaper-element.shaper-e0 ~ .shaper-element.shaper-eN`
+
+`.shaper-container` 除宽高/背景外，还会带上两行给下游导入器识别的画布声明：
+
+```css
+.shaper-container {
+  /* ... */
+  -miliastra-canvas-size: 1024x1024;  /* 显式画布尺寸，优先于 width / height */
+  -miliastra-canvas-fit: lock;        /* 画布锁定为图片尺寸，不按图元包围盒自动放大 */
+}
+```
+
+图元在拟合时可能略微越出图片边缘（例如铺满画布的背景图元会外扩几个像素），如果没有这两行，图片编辑器（editor-webui）等导入器会因为「图元溢出容器」而把画布自动放大并把全部图元整体平移，画布尺寸就不再等于原图尺寸。`lock` 让导入器严格采用声明的画布尺寸，越界部分按画布裁切——与 GIA 导出里的素材组尺寸一致。不认识这两个属性的普通浏览器与工具会直接忽略它们。
 
 使用时通常至少需要一个容器节点：
 

@@ -78,7 +78,9 @@ server.py /submit ──► shaper_core.process_image()
 | GIA 构建入口 | gia/json_to_gia.py | `convert_json_to_gia_bytes()` (~行1321) |
 | 图片模式写节点 | gia/json_to_gia.py | `_convert_image_mode()` (~行1450) |
 | alpha / packed_color 归一化 | gia/json_to_gia.py | `_alpha_to_int()` / `_color_to_packed()` (~行1091 / 1114) |
-| 前端：CSS 导出 | web/app.js | `buildCssExportText()` (~行541) |
+| 前端：图元像素包围盒 | web/app.js | `elementBoxPx()` (~行236) |
+| 前端：JSON 导出（编辑器场景） | web/app.js | `buildJsonExportPayload()` (~行542) |
+| 前端：CSS 导出 | web/app.js | `buildCssExportText()` (~行595) |
 | 前端：统一 config | web/upload.js | `buildUnifiedConfig()` (~行422) |
 | 前端：本地拟合流程 | web/upload.js | `processSingleLocal()` (~行477) |
 | 前端：WASM 结果 → 元素 | web/local_fit.js | `resultsToElements()` (~行356) |
