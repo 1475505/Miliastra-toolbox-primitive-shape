@@ -221,9 +221,16 @@
     return type;
   }
 
-  /* 逆时针为正的模型旋转 → 导出用的顺时针角度（CSS / 编辑器场景同号） */
+  /* 模型旋转（rotation.z，逆时针为正）→ CSS / SVG 用的顺时针角度 */
   function elementRotationDeg(element) {
     return element.rotation ? -Number(element.rotation.z || 0) : 0;
+  }
+
+  /* 模型旋转 → 编辑器场景 rotation（编辑器场景同为逆时针为正，符号与模型一致）。
+     CSS 的 rotate() 与 SVG 的 rotate() 都是顺时针为正，要取负；
+     编辑器场景文档的 rotation 是逆时针为正，必须用本函数，不能与上面混用。 */
+  function elementSceneRotationDeg(element) {
+    return element.rotation ? Number(element.rotation.z || 0) : 0;
   }
 
   function elementAlphaValue(element) {
@@ -557,7 +564,7 @@
         y: round2(center.y),
         width: round2(box.width),
         height: round2(box.height),
-        rotation: round2(elementRotationDeg(element)),
+        rotation: round2(elementSceneRotationDeg(element)),
         color: cssSolidColor(element.color),
         opacity: elementAlphaValue(element),
         zIndex: index,

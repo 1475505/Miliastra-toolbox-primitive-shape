@@ -112,12 +112,12 @@ python server.py --cli --input demo.png --export lua --output output.lua
 
 JSON 导出是一份 **千星图片编辑器（editor-webui）可直接导入**的场景文档：
 
-- `canvas`：画布尺寸与背景；不透明结果写 `#ffffff`，透明结果写 `transparent`
-- `elements`：扁平图元列表，字段为 `id / name / type / x / y / width / height / rotation / color / opacity / zIndex / isBackground`；`x`/`y` 是中心坐标，数组顺序即层级
+- `canvas`：画布尺寸与背景声明；不透明结果写 `#ffffff`，透明结果写 `transparent`（编辑器把画布背景视为查看偏好，导入时恒按透明处理，实底由下面那个白色背景矩形保证）
+- `elements`：扁平图元列表，字段为 `id / name / type / x / y / width / height / rotation / color / opacity / zIndex / isBackground`；`x`/`y` 是中心坐标，数组按**底 → 顶**排列（下标越大越靠上，`zIndex` 同增），与编辑器自己的场景 JSON 一致
 - `meta`：来源名（`sourceName`），编辑器用它做显示名
 - `shaper`：拟合工具自己的原始元数据（`origin`、`image_size`、`config`、`mask`、`group_name`），编辑器会忽略这一块
 
-坐标、尺寸与 `rotation` 都是导出图上的像素值（与 CSS 导出共用同一套换算），`rotation` 顺时针为正、单位为度。需要按自定义原点换算时用 `shaper.origin`（单位制坐标，`x` 向右、`y` 向上）。
+坐标与尺寸都是导出图上的像素值（与 CSS 导出共用同一套换算）；`rotation` 同样以度为单位，但**符号与 CSS 相反**——编辑器场景文档的 `rotation` 是**逆时针为正**（与拟合模型里的 `rotation.z` 同号），CSS / SVG 的 `rotate()` 则是顺时针为正。需要按自定义原点换算时用 `shaper.origin`（单位制坐标，`x` 向右、`y` 向上）。
 
 ### SVG
 

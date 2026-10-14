@@ -85,10 +85,10 @@
 前端三种导出（`web/app.js`）都要能被 **editor-webui** 直接吃下，改一处要连带改另一处：
 
 - **CSS**：`.shaper-container` 除宽高外还输出画布声明 `-miliastra-canvas-size: WxH` 与 `-miliastra-canvas-fit: lock`。图元拟合结果会合法越界（不透明图会补一个比画布大 8px 的白色背景矩形），缺这两行时导入方会按围盒放大画布并整体平移所有图元。
-- **JSON**：输出编辑器场景文档 `{ canvas, elements, meta, shaper }`——`elements` 是扁平字段（`id` 为**唯一字符串**，`x/y` 为中心、`rotation` 为度、顺时针为正），编辑器契约要 `canvas` 才不自动拟合；拟合工具的原始元数据（`origin`/`image_size`/`config`/`mask`）放在编辑器会忽略的 `shaper` 键里。
+- **JSON**：输出编辑器场景文档 `{ canvas, elements, meta, shaper }`——`elements` 是扁平字段（`id` 为**唯一字符串**，`x/y` 为中心、`rotation` 为度、**逆时针为正**），数组按底 → 顶排列（`zIndex` 同增）；编辑器契约要 `canvas` 才不自动拟合；拟合工具的原始元数据（`origin`/`image_size`/`config`/`mask`）放在编辑器会忽略的 `shaper` 键里。角度符号是这里最容易错的地方：编辑器场景 `rotation` 是**逆时针**为正（等于模型的 `rotation.z`），CSS / SVG 的 `rotate()` 是**顺时针**为正（等于 `-rotation.z`），前者用 `elementSceneRotationDeg()`、后者用 `elementRotationDeg()`，两个函数不可混用。
 - **SVG**：`viewBox` 即画布尺寸，本身就是自带尺寸的格式。
 
-`.shaper-container` / 场景 `canvas` 里的尺寸一律等于**导出图尺寸**；`elementBoxPx()` / `elementRotationDeg()` / `elementAlphaValue()` 是 CSS 与 JSON 共用的一套换算，不要各写一份。
+`.shaper-container` / 场景 `canvas` 里的尺寸一律等于**导出图尺寸**；`elementBoxPx()` / `elementAlphaValue()` 是 CSS 与 JSON 共用的一套换算，不要各写一份（**角度是唯一例外**：符号约定不同，见上）。
 
 Lua 导出复用同一套客户端运行时：每个图元实例化一个图片控件，矩形/圆形/三角形对应静态图片 `100001`/`100002`/`100003`。脚本头部自带使用说明（`IMAGE_PREFAB_ID` 必填为「仅存为模板」图片控件的**控件模板索引 ID**，非图片资产 ID；挂到专用空客户端容器节点，`OnStart` 绘制，勿移到 `OnInit`，`OnDestroy` 自动清理）。
 
