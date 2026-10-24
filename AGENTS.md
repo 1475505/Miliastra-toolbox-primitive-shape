@@ -1,6 +1,6 @@
 # 千星奇域图片拟合工具 (Shaper)
 
-图片拟合工具，用基础图元（椭圆/矩形/三角形）在图片前景区域内拟合，导出为 GIA（超限/经典）、Lua 客户端绘制脚本、JSON/CSS/SVG/PNG。
+图片拟合工具，用基础图元（椭圆/矩形/三角形）在图片前景区域内拟合，导出为素材组 GIA（超限/经典）、客户端「容器节点」模板 GIA、Lua 客户端绘制脚本、JSON/CSS/SVG/PNG。
 
 ## 目录结构
 
@@ -11,6 +11,7 @@
 ├── primitive_backend.py      # Go primitive 后端封装（图元搜索 + alpha 软权重）
 ├── lua_export.py             # 拟合结果 → 客户端 Lua 绘制脚本（PALETTE/ELEMENTS 版式，含使用说明头）
 ├── gia_lua.py                # 素材组 GIA → 客户端 Lua 绘制脚本（ROOT/ELEMENTS 版式）
+├── client_ui_export.py       # 拟合结果 → 客户端「容器节点」模板 GIA（纯 Python）
 ├── build_pyc.py              # 编译 .pyc 脚本（将 .py 编译部署用）
 ├── requirements.txt          # Python 依赖
 ├── Dockerfile                # Docker 部署
@@ -77,6 +78,7 @@
 | 导出                      | 入口                                       | 说明                                    |
 | ----------------------- | ---------------------------------------- | ------------------------------------- |
 | GIA（超限 / 经典）           | 结果页按钮 / CLI `--export gia --gia-mode`   | 素材组资产，`json_to_gia.pyc` 生成             |
+| 客户端「容器节点」模板 GIA     | 结果页按钮 / CLI `--export container-node`  | `client_ui_export.py`，图元为容器下的图片子控件，无需 Lua |
 | Lua 客户端绘制脚本            | 结果页按钮 / CLI `--export lua`              | `lua_export.py` 生成，见下                     |
 | JSON / CSS / SVG / PNG  | 结果页按钮                                    | JSON、CSS 可复制；供继续编辑或存档预览               |
 | 素材组 GIA → Lua          | 上传页「GIA模式转换」选 `gia_to_lua`            | `gia_lua.py` 生成，保留素材组图片资产与布局          |
@@ -92,6 +94,8 @@
 
 Lua 导出复用同一套客户端运行时：每个图元实例化一个图片控件，矩形/圆形/三角形对应静态图片 `100001`/`100002`/`100003`。脚本头部自带使用说明（`IMAGE_PREFAB_ID` 必填为「仅存为模板」图片控件的**控件模板索引 ID**，非图片资产 ID；挂到专用空客户端容器节点，`OnStart` 绘制，勿移到 `OnInit`，`OnDestroy` 自动清理）。
 
+客户端「容器节点」导出根资产必须是 `UIControlTemplate(70)`，容器槽 68/91、preset=25、中心锚点及导出图宽高，图片后代是 `UIControl(15)` 附件；**不是服务端「客户端控件容器」**，禁止生成 `UIControlGroup(21)` 包装层、preset=24 或 62/82 根引用槽。客户端 sibling **底→顶**写入，保持输入顺序，不反转；所选原点对齐容器中心，尺寸还原为导出图像素，三角形轴心 `(0.5, 1/3)`，四端同步。矩形裁剪使用透明遮罩图片父控件；根/新建子控件都登记独立 Info.index，不能按图片类型共号。`--gia-mode` 不适用于客户端模板。测试见 `test_client_ui_export.py`，独立 ugc-tool 编解码测试用 `UGC_GIA_CODEC` 环境变量启用。
+
 ## 路由架构
 
 | 路由                      | 说明                               |
@@ -106,6 +110,7 @@ Lua 导出复用同一套客户端运行时：每个图元实例化一个图片�
 | `POST /retry/<tid>`     | 结果页改参重跑                          |
 | `GET /download_overlimit_gia/<tid>` / `GET /download_classic_gia/<tid>` | 导出 GIA |
 | `GET /download_lua/<tid>` | 导出 Lua 客户端绘制脚本                    |
+| `GET /download_container_node_gia/<tid>` | 导出客户端「容器节点」模板 GIA     |
 | `POST /convert_gia_mode` | GIA 超限↔经典互转 / 素材组 GIA → Lua      |
 
 ## 本地模式（WebAssembly）

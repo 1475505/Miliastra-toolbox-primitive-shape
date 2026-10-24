@@ -16,6 +16,7 @@ Shaper/
 ├── primitive_backend.py  # Go 版 primitive 子进程封装（图元搜索、PNG alpha 软权重）
 ├── lua_export.py         # 拟合结果 → Lua 客户端绘制脚本（PALETTE / ELEMENTS）
 ├── gia_lua.py            # 素材组 GIA → Lua 客户端绘制脚本（ROOT / ELEMENTS）
+├── client_ui_export.py   # 拟合结果 → 客户端「容器节点」模板 GIA（独立纯 Python 编码）
 ├── build_pyc.py          # 编译 .pyc（对 gia/json_to_gia.py 额外产出入库的 pyc）
 ├── web/                  # 前端：upload.js / app.js / local_fit.js / style.css / wasm/
 ├── gia/                  # GIA 构建与互转
@@ -44,7 +45,8 @@ server.py /submit ──► shaper_core.process_image()
 结果页 /result/<tid>  (app.js)
     ├─ 超限 GIA   /download_overlimit_gia  → server._convert_result_to_gia_bytes() → gia/json_to_gia.py
     ├─ 经典 GIA   /download_classic_gia    → 同上 + convert_to_classic
-    ├─ Lua        /download_lua            → lua_export.py
+     ├─ Lua        /download_lua            → lua_export.py
+     ├─ 容器节点   /download_container_node_gia → client_ui_export.py
     └─ JSON / CSS / SVG / PNG              → 纯前端生成（app.js）
 ```
 
@@ -112,6 +114,10 @@ Python 在「键存在但值为 `None`」时不会采用默认值，会直接 `i
 `shaper_core.process_image_fill()` 就是这么产生的（白底 `insert(0, ...)`）。
 
 ### 3.3 GIA 构建器
+
+**客户端「容器节点」模板是独立链路**：`client_ui_export.build_container_node_gia()` 生成 `Root.graph.which=70` 的容器节点模板（preset=25、中心锚点、导出图宽高），图片后代作为 `which=15` 附件；禁止生成服务端 `which=21` 包装层、preset=24 或根节点引用槽 62/82。协议参考 `qxqy-lua/knowledge/ui` 和 `ugc-tool` 的 `giaExporter.ts` 的 `controlTemplate` 分支。四端 RectTransform 使用 float32，三角形轴心为 `(0.5, 1/3)`。所选原点（像素、Y 向下）对齐容器中心，图元坐标/尺寸用 `pixel_per_unit` 还原为像素。客户端 GIA sibling 是**底→顶**，保持输入顺序，不能套用素材组整体反转。启用矩形裁剪时增加透明遮罩父图片并重算孩子相对位置。根/新建子控件均按创建顺序登记独立 Info.index，不按图片类型共号；根 Info.related 显式空，不引用其他模板的伴生 GUID。新增代码须同步 `build_pyc.py` 与 `win/shaper.spec`。
+
+回归：`python -m unittest discover -v`。可选独立编解码校验：把环境变量 `UGC_GIA_CODEC` 指向 `ugc-tool/vendor/genshin-impact-ugc-file-converter-web/dist/index.js`，再次运行 `python -m unittest test_client_ui_export -v`（需要 Node）；无该变量时只跳过此项，不影响其余纯 Python 测试。本地校验不能代替游戏导入与运行验收。
 
 `gia/json_to_gia.py` 与 `Miliastra-image-editor-webui/backend/vendor/gia/json_to_gia.py` 同源，
 是同一份通用构建器（同时支持 `MODE_DECORATION` / `MODE_IMAGE`，本仓库只用 `MODE_IMAGE`）。

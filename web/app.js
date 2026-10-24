@@ -1005,6 +1005,27 @@
     });
   }
 
+  if ($("btnExportContainerNode")) {
+    const button = $("btnExportContainerNode");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const qs = new URLSearchParams({
+          origin_x: origin.x,
+          origin_y: origin.y,
+          export_name: currentExportBaseName(),
+        }).toString();
+        const response = await fetch(`/download_container_node_gia/${encodeURIComponent(window.TASK_ID || "")}?${qs}`);
+        if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+        await saveBlob(await response.blob(), `${currentExportBaseName()}_container_node.gia`);
+      } catch (error) {
+        alert(`导出失败: ${error.message || error}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
   for (const [buttonId, copy] of [["btnExportLua", false], ["btnCopyLua", true]]) {
     const button = $(buttonId);
     if (!button) continue;

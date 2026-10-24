@@ -31,6 +31,7 @@ a = Analysis(
         "fill_shaper",
         "lua_export",
         "gia_lua",
+        "client_ui_export",
         "json_to_gia",
         "convert_to_classic",
         "convert_to_overlimit",

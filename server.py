@@ -28,6 +28,7 @@ if BASE_DIR not in sys.path:
 
 import lua_export
 import gia_lua
+import client_ui_export
 import shaper_core
 
 
@@ -262,15 +263,21 @@ def _run_cli(args):
         print(f"Elapsed: {result.get('elapsed_seconds')}s")
         return 0
 
-    gia_bytes = _convert_result_to_gia_bytes(
-        result_data=result,
-        cfg=cfg,
-        image_name=image_name,
-        origin_x=origin_default.get("x", 0) if args.origin_x is None else float(args.origin_x),
-        origin_y=origin_default.get("y", 0) if args.origin_y is None else float(args.origin_y),
-    )
+    if args.export == "container-node":
+        gia_bytes = client_ui_export.build_container_node_gia(
+            result, image_name=_export_basename(image_name),
+            origin_x=args.origin_x, origin_y=args.origin_y,
+        )
+    else:
+        gia_bytes = _convert_result_to_gia_bytes(
+            result_data=result,
+            cfg=cfg,
+            image_name=image_name,
+            origin_x=origin_default.get("x", 0) if args.origin_x is None else float(args.origin_x),
+            origin_y=origin_default.get("y", 0) if args.origin_y is None else float(args.origin_y),
+        )
 
-    if args.gia_mode == "classic":
+    if args.export == "gia" and args.gia_mode == "classic":
         try:
             mod = _load_convert_to_classic()
             gia_bytes = mod.convert_gia_bytes_to_classic(gia_bytes)
@@ -279,7 +286,9 @@ def _run_cli(args):
             print(f"转换为经典模式失败: {exc}")
             return 1
 
-    output_path = os.path.abspath(args.output or _default_cli_output_path(input_path))
+    default_output = (os.path.join(os.getcwd(), f"{_export_basename(image_name)}_container_node.gia")
+                      if args.export == "container-node" else _default_cli_output_path(input_path))
+    output_path = os.path.abspath(args.output or default_output)
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
@@ -300,8 +309,8 @@ def _create_arg_parser():
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "5555")), help="web mode port")
 
     parser.add_argument("--input", help="input image path for CLI mode")
-    parser.add_argument("--output", help="output .gia path for CLI mode")
-    parser.add_argument("--name", help="character name used as GIA group_name (defaults to input filename stem)")
+    parser.add_argument("--output", help="output .gia / .lua path for CLI mode")
+    parser.add_argument("--name", help="export asset name (defaults to input filename stem)")
     parser.add_argument("--shape", action="append", help="allowed shape, repeatable: circle / rect / triangle")
     parser.add_argument("--origin-x", type=float, help="custom origin x in pixels for gia export")
     parser.add_argument("--origin-y", type=float, help="custom origin y in pixels for gia export")
@@ -313,8 +322,8 @@ def _create_arg_parser():
     parser.add_argument("--mask-threshold", type=int, default=127, help="fill mode alpha threshold")
     parser.add_argument("--enable-png-mode", action="store_true", help="fill mode transparent png output")
 
-    parser.add_argument("--gia-mode", choices=["overlimit", "classic"], default="overlimit", help="GIA output mode for CLI (default: overlimit)")
-    parser.add_argument("--export", choices=["gia", "lua"], default="gia", help="CLI export format: gia (default) or lua client script")
+    parser.add_argument("--gia-mode", choices=["overlimit", "classic"], default="overlimit", help="material-group GIA mode; only applies to --export gia (default: overlimit)")
+    parser.add_argument("--export", choices=["gia", "lua", "container-node"], default="gia", help="CLI export: material-group gia (default), lua script, or client container-node template GIA")
     return parser
 
 
@@ -655,7 +664,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
         <div class="export-name-field">
           <label for="exportFileName">导出文件名</label>
           <input type="text" id="exportFileName" autocomplete="off">
-          <p class="hint">默认与原文件名一致，同时用于 GIA 素材组名称。</p>
+          <p class="hint">默认与原文件名一致，同时用于 GIA 资产名称。</p>
         </div>
         <a class="editor-link" href="https://qx.070077.xyz/" target="_blank" rel="noopener noreferrer" aria-label="导入 CSS 进一步编辑（在新窗口打开）">导入 CSS 进一步编辑 ↗</a>
         <div class="export-group">
@@ -664,6 +673,13 @@ PAGE_RESULT = r"""<!DOCTYPE html>
             <button id="btnExportGIAOverlimit" class="btn-sm">导出超限模式 GIA</button>
             <button id="btnExportGIAClassic" class="btn-sm">导出经典模式 GIA</button>
           </div>
+        </div>
+        <div class="export-group">
+          <p class="export-group-title">客户端控件 · 容器节点</p>
+          <div class="export-stack">
+            <button id="btnExportContainerNode" class="btn-sm">导出容器节点 GIA</button>
+          </div>
+          <p class="hint">导出客户端「容器节点」模板，图元为其图片子控件；不是服务端「客户端控件容器」。无需 Lua，尺寸使用导出图像素，所选原点对齐容器中心。</p>
         </div>
         <div class="export-group">
           <p class="export-group-title">客户端脚本</p>
@@ -1252,6 +1268,29 @@ def download_classic_gia(tid):
     response = Response(gia_bytes, mimetype="application/octet-stream")
     download_name = f"{_export_basename(resolved_image_name)}_classic.gia"
     response.headers["Content-Disposition"] = _attachment_filename(download_name)
+    return response
+
+
+@app.route("/download_container_node_gia/<tid>")
+def download_container_node_gia(tid):
+    task = tasks.get(tid)
+    if not task or "result" not in task:
+        return "任务不存在", 404
+
+    image_name = request.args.get("export_name", "") or task.get("image_name", "")
+    try:
+        origin_x = float(request.args["origin_x"]) if "origin_x" in request.args else None
+        origin_y = float(request.args["origin_y"]) if "origin_y" in request.args else None
+        gia_bytes = client_ui_export.build_container_node_gia(
+            task["result"], image_name=_export_basename(image_name),
+            origin_x=origin_x, origin_y=origin_y,
+        )
+    except (ValueError, TypeError, OverflowError) as exc:
+        logger.warning("container_node_export_error task_id=%s: %s", tid, exc)
+        return f"导出容器节点失败: {exc}", 400
+
+    response = Response(gia_bytes, mimetype="application/octet-stream")
+    response.headers["Content-Disposition"] = _attachment_filename(f"{_export_basename(image_name)}_container_node.gia")
     return response
 
 
