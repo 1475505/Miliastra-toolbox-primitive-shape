@@ -2035,6 +2035,7 @@ input[type="range"]:focus-visible {
 .primitive-count-row { display: flex; align-items: center; gap: 12px; }
 .primitive-count-row input[type="range"] { flex: 1; min-width: 0; }
 .primitive-count-row .num-input { width: 72px; flex-shrink: 0; padding-left: 8px; padding-right: 8px; }
+.num-prims-max-hint { color: var(--md-primary); font-weight: 500; }
 .png-mode-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; margin-bottom: 8px; }
 .png-mode-toggle input { accent-color: var(--md-primary); }
 #mainForm .section-submit { flex-shrink: 0; margin: 0; padding: 16px 20px; border-top: 1px solid var(--md-surface-container-high); }

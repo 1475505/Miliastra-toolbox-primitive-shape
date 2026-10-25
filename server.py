@@ -70,9 +70,26 @@ def _compute_web_asset_version():
 
 WEB_ASSET_VERSION = _compute_web_asset_version()
 
+
+def _env_flag(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+# 只允许本地模式（WASM）拟合：开启后云端 /submit 与 /retry 均不可用（默认关）
+LOCAL_ONLY = _env_flag("LOCAL_ONLY", False)
+
+# 图元数量：滑杆上限 1200，输入框允许更高；5000 兼顾高密度拟合耗时与导出体积
+MAX_PRIMITIVES = 5000
+PRIMITIVE_SLIDER_MAX = 1200
+
 # 默认拟合运行方式（上传页「本地模式」开关初始状态）：local=本地（WASM），cloud=云端
 DEFAULT_FIT_MODE = os.environ.get("DEFAULT_FIT_MODE", "local").strip().lower()
 if DEFAULT_FIT_MODE not in ("local", "cloud"):
+    DEFAULT_FIT_MODE = "local"
+if LOCAL_ONLY:
     DEFAULT_FIT_MODE = "local"
 
 
@@ -215,7 +232,7 @@ def _build_cli_config(args, input_path):
         },
     }
 
-    cfg["num_primitives"] = max(40, min(3000, int(args.num_primitives)))
+    cfg["num_primitives"] = max(40, min(MAX_PRIMITIVES, int(args.num_primitives)))
     cfg["mask_threshold"] = int(args.mask_threshold)
     cfg["detail_scale"] = float(args.detail_scale)
     cfg["image_scale"] = float(args.image_scale)
@@ -338,7 +355,7 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/style.css?v={{ asset_version }}">
 </head>
-<body class="page-upload" data-default-fit-mode="{{ default_fit_mode }}">
+<body class="page-upload" data-default-fit-mode="{{ default_fit_mode }}" data-local-only="{{ local_only }}" data-max-primitives="{{ max_primitives }}">
   <header class="topbar">
     <div class="topbar-left">
       <a href="/" class="brand-link"><h1>图片图元拟合</h1></a>
@@ -367,15 +384,15 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
               <div class="engine-card" id="engineCard">
                 <div class="engine-card-head">
                   <label class="switch" for="localModeToggle">
-                    <input type="checkbox" id="localModeToggle">
+                    <input type="checkbox" id="localModeToggle"{% if local_only %} checked disabled{% endif %}>
                     <span class="switch-track"><span class="switch-thumb"></span></span>
                   </label>
                   <div class="engine-card-title">
                     <strong>本地模式</strong>
-                    <span class="engine-badge" id="engineBadge">云端引擎</span>
+                    <span class="engine-badge" id="engineBadge"{% if local_only %} data-mode="local"{% endif %}>{% if local_only %}本地引擎 · WASM{% else %}云端引擎{% endif %}</span>
                   </div>
                 </div>
-                <p class="hint" id="engineHint">云端模式：由服务器完成拟合计算。</p>
+                <p class="hint" id="engineHint">{% if local_only %}仅本地模式（LOCAL_ONLY）：云端拟合已禁用。{% else %}云端模式：由服务器完成拟合计算。{% endif %}</p>
                 <div class="engine-status" id="engineStatus" hidden>
                   <span class="engine-status-dot"></span>
                   <span id="engineStatusText">本地引擎加载中…</span>
@@ -418,9 +435,10 @@ PAGE_UPLOAD = r"""<!DOCTYPE html>
                   </div>
                   <p class="param-desc">越多越细，但耗时也更高。</p>
                   <div class="primitive-count-row">
-                    <input type="range" name="num_primitives" id="numPrims" min="40" max="1200" step="10" value="400" aria-label="图元数量">
-                    <input type="number" name="num_primitives_manual" id="numPrimsManual" min="40" max="3000" value="400" class="num-input" aria-label="手动输入图元数量">
+                    <input type="range" name="num_primitives" id="numPrims" min="40" max="{{ primitive_slider_max }}" step="10" value="400" aria-label="图元数量">
+                    <input type="number" name="num_primitives_manual" id="numPrimsManual" min="40" max="{{ max_primitives }}" value="400" class="num-input" aria-label="手动输入图元数量">
                   </div>
+                  <p class="hint num-prims-max-hint" id="numPrimsMaxHint" hidden>更高控件数请从输入框输入</p>
                 </div>
 
                 <div class="param-item">
@@ -732,12 +750,13 @@ PAGE_RESULT = r"""<!DOCTYPE html>
         </table></div>
       </section>
 
+      {% if not local_only %}
       <section class="panel-section" id="retrySectionFill">
         <h3>重新处理</h3>
         <form action="/retry/{{ task_id }}" method="POST">
           <div class="config-row">
             <label>图元数量</label>
-            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="3000" class="num-input">
+            <input type="number" name="num_primitives" value="{{ cfg_np }}" min="40" max="{{ max_primitives }}" class="num-input">
           </div>
           <div class="config-row">
             <label>图片缩放</label>
@@ -750,6 +769,7 @@ PAGE_RESULT = r"""<!DOCTYPE html>
           <button type="submit" class="btn-primary" style="margin-top:8px">重新处理</button>
         </form>
       </section>
+      {% endif %}
     </aside>
 
     <main class="canvas-area">
@@ -809,7 +829,14 @@ PAGE_RESULT = r"""<!DOCTYPE html>
 
 @app.route("/")
 def index():
-    return render_template_string(PAGE_UPLOAD, asset_version=WEB_ASSET_VERSION, default_fit_mode=DEFAULT_FIT_MODE)
+    return render_template_string(
+        PAGE_UPLOAD,
+        asset_version=WEB_ASSET_VERSION,
+        default_fit_mode=DEFAULT_FIT_MODE,
+        local_only=1 if LOCAL_ONLY else 0,
+        max_primitives=MAX_PRIMITIVES,
+        primitive_slider_max=PRIMITIVE_SLIDER_MAX,
+    )
 
 
 @app.route("/healthz")
@@ -830,6 +857,8 @@ def static_file(filename):
 
 @app.route("/submit", methods=["POST"])
 def submit():
+    if LOCAL_ONLY:
+        return "当前服务已启用 LOCAL_ONLY（仅本地模式），云端拟合不可用。", 403
     cleanup()
     if "image" not in request.files:
         return "缺少图片", 400
@@ -861,9 +890,9 @@ def submit():
     # Support both slider and manual input for num_primitives
     manual_prims = request.form.get("num_primitives_manual", "")
     if manual_prims:
-        cfg["num_primitives"] = max(40, min(3000, int(manual_prims)))
+        cfg["num_primitives"] = max(40, min(MAX_PRIMITIVES, int(manual_prims)))
     else:
-        cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", 400))))
+        cfg["num_primitives"] = max(40, min(MAX_PRIMITIVES, int(request.form.get("num_primitives", 400))))
     cfg["mask_threshold"] = int(request.form.get("mask_threshold", 127))
     cfg["detail_scale"] = float(request.form.get("detail_scale", 1.0))
     cfg["image_scale"] = float(request.form.get("image_scale", 1.0))
@@ -935,6 +964,8 @@ def submit():
 
 @app.route("/retry/<tid>", methods=["POST"])
 def retry(tid):
+    if LOCAL_ONLY:
+        return "当前服务已启用 LOCAL_ONLY（仅本地模式），云端拟合不可用。", 403
     old_task = tasks.get(tid)
     if not old_task or "image_bytes" not in old_task:
         return redirect("/")
@@ -946,7 +977,7 @@ def retry(tid):
     mode = old_cfg.get("mode", "fill")
     cfg = {"mode": mode}
 
-    cfg["num_primitives"] = max(40, min(3000, int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))))
+    cfg["num_primitives"] = max(40, min(MAX_PRIMITIVES, int(request.form.get("num_primitives", old_cfg.get("num_primitives", 400)))))
     cfg["mask_threshold"] = int(request.form.get("mask_threshold", old_cfg.get("mask_threshold", 127)))
     cfg["detail_scale"] = float(request.form.get("detail_scale", old_cfg.get("detail_scale", 1.0)))
     cfg["image_scale"] = float(request.form.get("image_scale", old_cfg.get("image_scale", 1.0)))
@@ -1142,6 +1173,8 @@ def result(tid):
         cfg_np=cfg.get("num_primitives", 400),
         cfg_scale=cfg.get("image_scale", 1.0),
         cfg_alpha=int(cfg.get("output_alpha", 1.0) * 100),
+        local_only=1 if LOCAL_ONLY else 0,
+        max_primitives=MAX_PRIMITIVES,
     )
 
 

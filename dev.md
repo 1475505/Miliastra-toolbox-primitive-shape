@@ -54,6 +54,11 @@ server.py /submit ──► shaper_core.process_image()
 `web/local_fit.js` 把元素 JSON `POST /register_result` 寄存，之后复用同一条结果页 / 导出链路。
 上传页的「本地模式」开关状态记在 `localStorage.shaper.localMode`。
 
+**仅本地模式**：设置环境变量 `LOCAL_ONLY=1`（默认关）后，上传页开关锁定为本地模式，
+`POST /submit` 与 `POST /retry/<tid>` 返回 403，云端拟合完全不可用；`DEFAULT_FIT_MODE` 同时被强制为 `local`。
+
+**图元数量**：滑杆上限 1200，超出时需在右侧输入框手动填写；输入框与服务端统一上限为 `MAX_PRIMITIVES = 5000`。
+
 **素材组 GIA 的两条独立通路**：上传页「GIA转换」支持超限 ↔ 经典互转，以及素材组 GIA → Lua 脚本。
 
 ---

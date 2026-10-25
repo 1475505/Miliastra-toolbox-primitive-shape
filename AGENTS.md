@@ -117,6 +117,8 @@ Lua 导出复用同一套客户端运行时：每个图元实例化一个图片�
 
 - 「本地模式」开关在上传页顶部；仅支持填充模式，单图处理后跳转结果页
 
+- `LOCAL_ONLY=1`（默认关）时上传页开关锁定本地模式，`/submit` 与 `/retry` 的云端拟合返回 403，`DEFAULT_FIT_MODE` 强制为 `local`
+
 - 拟合引擎 = `third_party/primitive` 编译的 WASM（与云端同一算法），在 Web Worker 中运行
 
 - 多核：Go js/wasm 单线程（GOMAXPROCS=1），多核 = 多 WASM 实例。**单图并行**采用与云端 `primitive -j N` 相同的 Step 内候选并行（`wasm/main.go` 分步 API：init/state/search/apply/finish；`web/local_fit.js` 的 `runDistributed` 编排，每 Step 各实例搜索候选、主实例应用最优），池大小 = hardwareConcurrency（逻辑核数，实测 M2 8 核 \~3.8x 提速）

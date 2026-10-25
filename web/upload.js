@@ -41,6 +41,10 @@
   let activeTool = "image";
   let activePreviewUrl = null;
 
+  // 服务端下发的运行约束：LOCAL_ONLY 时云端拟合不可用；输入框上限由后端统一配置
+  const localOnly = document.body.dataset.localOnly === "1";
+  const maxPrimitives = Number.parseInt(document.body.dataset.maxPrimitives, 10) || 5000;
+
   // ---- 本地模式（WebAssembly） ----
   const localModeToggle = $("localModeToggle");
   const engineBadge = $("engineBadge");
@@ -369,6 +373,11 @@
   /* ================= 本地模式 ================= */
 
   function updateEngineUi() {
+    if (localOnly && localModeToggle) {
+      // LOCAL_ONLY：云端拟合被服务端禁用，开关锁定在本地模式
+      localModeToggle.checked = true;
+      localModeToggle.disabled = true;
+    }
     const on = isLocalMode();
     localMode = on;
     updateUploadWarning();
@@ -379,9 +388,13 @@
       engineBadge.dataset.mode = on ? "local" : "cloud";
     }
     if (engineHint) {
-      engineHint.textContent = on
-        ? "本地模式：速度更快，计算在浏览器内完成。"
-        : "云端模式：由服务器完成拟合计算。";
+      if (localOnly) {
+        engineHint.textContent = "仅本地模式（LOCAL_ONLY）：云端拟合已禁用。";
+      } else {
+        engineHint.textContent = on
+          ? "本地模式：速度更快，计算在浏览器内完成。"
+          : "云端模式：由服务器完成拟合计算。";
+      }
     }
     if (engineStatus) engineStatus.hidden = !on;
 
@@ -402,7 +415,7 @@
         const workers = window.LocalFit.readyWorkerCount ? window.LocalFit.readyWorkerCount() : 1;
         engineStatusText.textContent = ready
           ? (workers > 1 ? `本地引擎就绪（${workers} 核并行）` : "本地引擎就绪")
-          : "本地引擎加载失败，可切换回云端模式";
+          : (localOnly ? "本地引擎加载失败，请刷新页面重试" : "本地引擎加载失败，可切换回云端模式");
         if (engineStatus) engineStatus.dataset.state = ready ? "ready" : "error";
       });
       if (engineStatus) engineStatus.dataset.state = "loading";
@@ -423,8 +436,8 @@
     const manualPrims = Number.parseInt(($("numPrimsManual") || {}).value, 10);
     const sliderPrims = Number.parseInt(($("numPrims") || {}).value, 10);
     const numPrimitives = Number.isFinite(manualPrims)
-      ? Math.max(40, Math.min(3000, manualPrims))
-      : Math.max(40, Math.min(3000, Number.isFinite(sliderPrims) ? sliderPrims : 400));
+      ? Math.max(40, Math.min(maxPrimitives, manualPrims))
+      : Math.max(40, Math.min(maxPrimitives, Number.isFinite(sliderPrims) ? sliderPrims : 400));
     const alphaPercent = Number.parseFloat(($("outputAlpha") || {}).value);
     const config = {
       mode: "fill",
@@ -589,19 +602,30 @@
   const numPrimsSlider = $("numPrims");
   const numPrimsManual = $("numPrimsManual");
   const numPrimsVal = $("numPrimsVal");
+  const numPrimsMaxHint = $("numPrimsMaxHint");
   if (numPrimsSlider && numPrimsManual) {
-    numPrimsSlider.max = "1200";
+    const sliderMax = Number(numPrimsSlider.max) || 1200;
+    numPrimsSlider.max = String(sliderMax);
+    numPrimsManual.max = String(maxPrimitives);
+    const updateNumPrimsHint = () => {
+      if (!numPrimsMaxHint) return;
+      numPrimsMaxHint.hidden = Number(numPrimsSlider.value) < sliderMax;
+    };
     numPrimsSlider.addEventListener("input", () => {
       numPrimsManual.value = numPrimsSlider.value;
       if (numPrimsVal) numPrimsVal.textContent = numPrimsSlider.value;
+      updateNumPrimsHint();
     });
     numPrimsManual.addEventListener("input", () => {
       const value = Number.parseInt(numPrimsManual.value, 10);
-      if (!Number.isNaN(value) && value >= 40 && value <= 1200) {
-        numPrimsSlider.value = String(value);
+      if (!Number.isNaN(value) && value >= 40) {
+        numPrimsSlider.value = String(Math.min(value, sliderMax));
+        updateSliderFill(numPrimsSlider);
       }
-      if (numPrimsVal) numPrimsVal.textContent = numPrimsSlider.value;
+      if (numPrimsVal) numPrimsVal.textContent = numPrimsManual.value || numPrimsSlider.value;
+      updateNumPrimsHint();
     });
+    updateNumPrimsHint();
   }
 
   if (imageToolTab) {
@@ -820,19 +844,22 @@
   setTool("image");
   updateClassicToolUi();
 
-  // 恢复本地模式偏好并预热引擎：优先用户上次选择，无记录时用服务端默认（DEFAULT_FIT_MODE）
-  let savedLocalMode = false;
+  // 恢复本地模式偏好并预热引擎：LOCAL_ONLY 强制本地；否则优先用户上次选择，无记录时用服务端默认（DEFAULT_FIT_MODE）
+  let savedLocalMode = localOnly;
   try {
-    const saved = localStorage.getItem("shaper.localMode");
-    if (saved === "1" || saved === "0") {
-      savedLocalMode = saved === "1";
-    } else {
-      const serverDefault = (document.body.dataset.defaultFitMode || "").toLowerCase();
-      savedLocalMode = serverDefault !== "cloud"; // 缺省本地模式
+    if (!localOnly) {
+      const saved = localStorage.getItem("shaper.localMode");
+      if (saved === "1" || saved === "0") {
+        savedLocalMode = saved === "1";
+      } else {
+        const serverDefault = (document.body.dataset.defaultFitMode || "").toLowerCase();
+        savedLocalMode = serverDefault !== "cloud"; // 缺省本地模式
+      }
     }
   } catch (error) { /* ignore */ }
   if (localModeToggle) {
     localModeToggle.checked = savedLocalMode;
+    if (localOnly) localModeToggle.disabled = true;
     updateEngineUi();
   }
   updateOutputSizeUi();
